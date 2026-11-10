@@ -19,7 +19,7 @@
     <PublishAot>true</PublishAot>
     <!-- Workaround for WindowsAppSDK issue 6897: on the .NET 11 SDK, PublishAot turns on
          UseOptimizedPublish, which runs XAML compilation before references are resolved
-         and fails with WMC1007. Verified on 11.0.100-rc.3 with Windows App SDK 2.6.5
+         and fails with WMC1007. Verified on 11.0.100-rc.3 and again on 11.0.100 final (where removing this fails as MSB3030) with Windows App SDK 2.6.5
          even for an unpackaged app. Remove once a fixed SDK or build tools ship. -->
     <UseOptimizedPublish>false</UseOptimizedPublish>
     <!-- Required by CsWinRT for AOT (error CsWinRT1030): Digi21.WinUI.Docking types
@@ -47,7 +47,8 @@
        under NativeAOT the content of docked windows is silently dropped (titles render,
        content does not) unless a docking container type is preserved. Rooting DockSite
        alone fixes it, at about +1.3 MB, versus +4.5 MB for rooting the whole assembly.
-       The cause is not yet understood. Verified on .NET 11 RC3 + Windows App SDK 2.6.5. -->
+       The cause is not yet understood. Verified on .NET 11 RC3, and again on the 11.0.100 final SDK (without
+       the root 0 of 3 placeholders are found, with it 3), Windows App SDK 2.6.5. -->
   <ItemGroup>
     <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
   </ItemGroup>

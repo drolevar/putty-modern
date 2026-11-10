@@ -1,7 +1,7 @@
 # Spike: keyboard and IME input for a custom terminal control
 
 Result of Beads issue `putty-modern-gck`, measured on 2026-11-10 with Windows App SDK 2.6.5, .NET
-11 (rc.3 SDK) and PuTTY `29dd4b17`. The throwaway app is `spikes/keyboard-ime/` (not part of
+11 (rc.3 SDK for most of the work; the AOT behaviour was not re-run on the final SDK) and PuTTY `29dd4b17`. The throwaway app is `spikes/keyboard-ime/` (not part of
 `PuTTY.slnx`); `winapp`/`wsb` commands to rerun it are at the end.
 
 ## The question
