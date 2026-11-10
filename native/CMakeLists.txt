@@ -34,7 +34,7 @@ set(PUTTY_LIB_DIR "${PUTTY_BINARY_DIR}/lib")      # every PuTTY static library l
 set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
 
 option(PUTTY_ENGINE_FULL
-  "Link PuTTY's SSH client, backends and terminal libraries. EXPECTED TO FAIL TO LINK until the front-end contract is implemented: the unresolved externals are the to-do list (see docs/front-end-contract.md)."
+  "Also compile PuTTY's config-box description (config.c, dialog.c), which needs the 30 dlg_* functions the engine does not implement yet. EXPECTED TO FAIL TO LINK: the unresolved externals are the to-do list (see docs/front-end-contract.md)."
   OFF)
 
 # PuTTY static libraries the engine links (the plink target in
@@ -46,12 +46,8 @@ option(PUTTY_ENGINE_FULL
 # PuTTY's guiterminal library is deliberately NOT used: it bundles the Win32 dialog code
 # (windows/dialog.c, controls.c, jump-list.c, ...) alongside the portable terminal code,
 # and the linker would silently satisfy the dlg_* functions from it. The portable files
-# are compiled directly instead (PUTTY_TERMINAL_SOURCES below).
-if(PUTTY_ENGINE_FULL)
-  set(PUTTY_LIBS guimisc eventloop sshclient otherbackends settings network crypto utils)
-else()
-  set(PUTTY_LIBS utils)
-endif()
+# are compiled directly instead (PUTTY_CORE_SOURCES below).
+set(PUTTY_LIBS guimisc eventloop sshclient otherbackends settings network crypto utils)
 
 include(ExternalProject)
 
@@ -87,18 +83,28 @@ endforeach()
 # member name), so everything that touches PuTTY types is C. C++ (the future
 # Direct2D/DirectWrite renderer) must sit behind a C interface.
 # ---------------------------------------------------------------------------
-set(ENGINE_SOURCES engine/engine.c engine/frontend.c)
+
+# PuTTY source files compiled directly into the engine (paths relative to external/putty).
+set(PUTTY_CORE_SOURCES
+  be_list.c                        # how a program picks its backends (SSH, serial, the others)
+  terminal/terminal.c terminal/bidi.c terminal/lineedit.c   # the emulator
+  ldisc.c                          # line discipline
+  stubs/no-printing.c              # PuTTY's own stub: printing is out of scope
+  windows/no-jump-list.c)          # PuTTY's own stub: no taskbar jump list yet
+
+set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/core_refs.c)
+
 if(PUTTY_ENGINE_FULL)
-  # be_list.c is how every PuTTY program picks its backends: SSH, serial and the others.
-  set(PUTTY_TERMINAL_SOURCES
-    terminal/terminal.c terminal/bidi.c terminal/lineedit.c   # the emulator
-    ldisc.c                                                   # line discipline
-    config.c dialog.c)                                        # config-box description (platform-neutral)
-  list(TRANSFORM PUTTY_TERMINAL_SOURCES PREPEND "${PUTTY_SOURCE_DIR}/")
-  list(APPEND ENGINE_SOURCES engine/core_refs.c "${PUTTY_SOURCE_DIR}/be_list.c" ${PUTTY_TERMINAL_SOURCES})
-  set_source_files_properties("${PUTTY_SOURCE_DIR}/be_list.c" PROPERTIES
-    COMPILE_DEFINITIONS "SSH=1;SERIAL=1;OTHERBACKENDS=1;APPNAME=PuTTY")
+  # The config-box description. Needs the dlg_* functions and show_ca_config_box (slice 4).
+  # Not stubs/no-ca-config.c: that is for programs WITHOUT SSH code; ours links ssh/ca-config.c,
+  # which provides the real has_ca_config_box and setup_ca_config_box.
+  list(APPEND PUTTY_CORE_SOURCES config.c dialog.c)
 endif()
+
+list(TRANSFORM PUTTY_CORE_SOURCES PREPEND "${PUTTY_SOURCE_DIR}/")
+list(APPEND ENGINE_SOURCES ${PUTTY_CORE_SOURCES})
+set_source_files_properties("${PUTTY_SOURCE_DIR}/be_list.c" PROPERTIES
+  COMPILE_DEFINITIONS "SSH=1;SERIAL=1;OTHERBACKENDS=1;APPNAME=PuTTY")
 
 add_library(puttyengine SHARED ${ENGINE_SOURCES})
 
@@ -119,6 +125,9 @@ target_compile_definitions(puttyengine PRIVATE
   _CRT_SECURE_NO_WARNINGS
   _WINSOCK_DEPRECATED_NO_WARNINGS
   _ARM_WINAPI_PARTITION_DESKTOP_SDK_AVAILABLE)
+if(PUTTY_ENGINE_FULL)
+  target_compile_definitions(puttyengine PRIVATE PUTTY_ENGINE_FULL)
+endif()
 
 list(TRANSFORM PUTTY_LIBS PREPEND "putty::" OUTPUT_VARIABLE _putty_link_targets)
 target_link_libraries(puttyengine PRIVATE

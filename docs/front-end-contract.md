@@ -2,6 +2,12 @@
 
 Result of Beads issue `putty-modern-q59`, measured against PuTTY `29dd4b17` (`external/putty`).
 
+**Status after slice 1a:** the 14 symbols outside the settings dialog (printing 6, jump list 3,
+process-level 5) are now defined or stubbed, so the default engine links PuTTY's whole SSH
+client, backends, network code and portable terminal code. What remains is the settings dialog
+only: the 30 `dlg_*` functions and `show_ca_config_box`, 31 in all (not 30; see item 4). The
+numbers in the sections below are the original measurement of 45.
+
 ## How this list was produced, and how to reproduce it
 
 `build\native.cmd x64 full` builds the engine with `PUTTY_ENGINE_FULL=ON`. That links PuTTY's
@@ -61,10 +67,13 @@ until printing is wanted; the real version is `windows/printing.c`.
 PuTTY's Windows `storage.c` when sessions are saved or deleted. The sketch shows no jump
 list. Compile `windows/no-jump-list.c` for now; the real version is `windows/jump-list.c`.
 
-### 4. Host-CA configuration box: 1 function (stub for now)
+### 4. Host-CA configuration box: 1 function (implement with the settings UI)
 
-`show_ca_config_box` (`putty.h`), called from the settings. Use `stubs/no-ca-config.c` until
-there is a UI for it; the real version is in `windows/dialog.c`.
+`show_ca_config_box` (`putty.h`), called from the settings. `stubs/no-ca-config.c` is NOT a
+substitute: it is for programs without SSH code and defines `has_ca_config_box = false` and a
+`setup_ca_config_box` that aborts. Our engine links `ssh/ca-config.c`, which provides the real
+ones, so this one function has to be implemented with the settings UI (slice 4). The Win32
+version is in `windows/dialog.c`.
 
 ### 5. Process-level definitions: 5 symbols
 
@@ -92,8 +101,8 @@ misbehaves at run time. They are the larger part of the work.
 
 ## Suggested order
 
-1. Items 2 to 4 (compile PuTTY's own stubs) and item 5: this should shrink the list from 45
-   to the 30 `dlg_*` functions with little code.
+1. DONE in slice 1a: items 2, 3 and 5. Item 4 cannot be stubbed (see above), so what is left is 31:
+   the 30 `dlg_*` functions plus `show_ca_config_box`, all for the settings UI.
 2. A first `Seat`, `LogPolicy` and `TermWin` (plain output, no rendering), enough to open a
    Telnet or raw session; this is where the real engine work starts.
 3. The 30 `dlg_*` functions together with the settings UI, since they only make sense there.
