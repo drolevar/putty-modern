@@ -39,7 +39,13 @@
                     <docking:DocumentHost docking:DockSite.RelativeSize="0.75">
                         <docking:DocumentContainer>
                             <docking:DocumentWindow Title="web-prod-01" SerializationId="doc.web-prod-01">
-                                <TextBlock Margin="12" Text="{x:Bind ViewModel.EngineStatus, Mode=OneWay}" />
+                                <!-- The terminal view is attached to this control in code (TerminalViewController);
+                                     until a session is shown it holds the engine status. -->
+                                <UserControl x:Name="TerminalHost"
+                                             HorizontalContentAlignment="Stretch"
+                                             VerticalContentAlignment="Stretch">
+                                    <TextBlock Margin="12" Text="{x:Bind ViewModel.EngineStatus, Mode=OneWay}" />
+                                </UserControl>
                             </docking:DocumentWindow>
                         </docking:DocumentContainer>
                     </docking:DocumentHost>
