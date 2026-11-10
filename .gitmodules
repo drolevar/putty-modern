@@ -1,0 +1,3 @@
+[submodule "external/putty"]
+	path = external/putty
+	url = https://github.com/drolevar/putty

@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "putty_modern",
+  "project_id": "53144925-ee9d-42f9-9eaf-b70a9507ba0a"
+}

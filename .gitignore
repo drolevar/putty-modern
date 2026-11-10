@@ -1,0 +1,20 @@
+# Build output (all projects write here; see Directory.Build.props UseArtifactsOutput)
+artifacts/
+
+# .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# winapp / signing
+.winapp/
+*.pfx
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
