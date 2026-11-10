@@ -1,0 +1,18 @@
+<Project Sdk="MSTest.Sdk">
+
+  <!-- MSTest on Microsoft.Testing.Platform; SDK version and the dotnet test runner are
+       set in global.json. x64 because the native engine is x64 only. -->
+
+  <PropertyGroup>
+    <TargetFramework>$(NetVersion)</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PuTTY.Interop\PuTTY.Interop.csproj" />
+  </ItemGroup>
+
+  <!-- Builds the native engine first and stages puttyengine.dll next to the tests. -->
+  <Import Project="..\..\build\NativeEngine.targets" />
+
+</Project>

@@ -1,0 +1,25 @@
+<Project>
+
+  <!-- Import this from any project that needs puttyengine.dll next to its output (app,
+       tests). It builds the native engine first (CMake + Ninja through PuTTY.Native, which
+       produces no assembly, so skip target-framework negotiation and reference no output)
+       and stages the DLL as content.
+
+       The DLL is added in a target, not as a static item with an Exists() condition: it
+       does not exist yet at evaluation time on a clean tree. -->
+
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\src\PuTTY.Native\PuTTY.Native.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true" />
+  </ItemGroup>
+
+  <Target Name="StageNativeEngine" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <Content Include="$(ArtifactsPath)\native\x64\puttyengine.dll"
+               Link="puttyengine.dll"
+               CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+</Project>

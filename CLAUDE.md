@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A WinUI 3 front end for PuTTY: a C# app (.NET 11, NativeAOT) on top of a native engine DLL built from the **unmodified** PuTTY core, which is the `external/putty` submodule ([drolevar/putty](https://github.com/drolevar/putty), a synchronized mirror of upstream, pinned at `29dd4b17`).
 
-**State (2026-11-10): the skeleton works end to end; no product features yet.** Built and verified: the native engine DLL (`pe_abi_version`, `pe_probe`), `PuTTY.Interop`, and a `PuTTY.App` window that hosts the docking layout from the sketch and calls the engine, in both a normal build and a NativeAOT publish. Not built: sessions, terminal, Seat/TermWin glue, settings UI, tests (so no test commands exist), CI, packaging. "Planned architecture" below is design intent, not code. Work is tracked in Beads (`bd ready`).
+**State (2026-11-10): the skeleton works end to end; no product features yet.** Built and verified: the native engine DLL (`pe_abi_version`, `pe_probe`), `PuTTY.Interop`, and a `PuTTY.App` window that hosts the docking layout from the sketch and calls the engine, in both a normal build and a NativeAOT publish. Not built: sessions, terminal, Seat/TermWin glue, settings UI, CI, packaging. The only tests cover the managed/native interop contract. "Planned architecture" below is design intent, not code. Work is tracked in Beads (`bd ready`).
 
 ## Toolchain (verified on this machine)
 
@@ -19,7 +19,16 @@ A WinUI 3 front end for PuTTY: a C# app (.NET 11, NativeAOT) on top of a native 
 
 Everything: `dotnet build PuTTY.slnx -c Release` builds the native engine and the managed projects, and stages `puttyengine.dll` next to `PuTTY.App` (from clean about 80 s; a no-change rebuild about 19 s). Native only: `build\native.cmd` (x64), which finds Visual Studio with `vswhere`, enters its developer environment and runs CMake with Ninja; output is `artifacts/native/x64/puttyengine.dll`. Nothing needs to be on PATH.
 
-How it is wired: `src/PuTTY.Native` is a `Microsoft.Build.NoTargets` project (SDK version in `global.json`) whose only job is to run `build\native.cmd`; `PuTTY.App` references it with `ReferenceOutputAssembly=false` so it builds first, and a `StageNativeEngine` target adds the DLL as content (not a static `Exists()` item, which is false on a clean tree). `native/CMakeLists.txt` builds PuTTY itself as an ExternalProject and links its static libraries from one flat `lib/` folder. It requires a single-config generator (Ninja) and stops with an error under a multi-config one.
+How it is wired: `src/PuTTY.Native` is a `Microsoft.Build.NoTargets` project (SDK version in `global.json`) whose only job is to run `build\native.cmd`; any project that imports `build/NativeEngine.targets` (the app and the test project) gets a `ReferenceOutputAssembly=false` reference to it so it builds first, plus a `StageNativeEngine` target that adds the DLL as content (not a static `Exists()` item, which is false on a clean tree). `native/CMakeLists.txt` builds PuTTY itself as an ExternalProject and links its static libraries from one flat `lib/` folder. It requires a single-config generator (Ninja) and stops with an error under a multi-config one.
+
+Tests (MSTest via `MSTest.Sdk`, running on Microsoft.Testing.Platform; versions and the `dotnet test` runner are set in `global.json`):
+
+```
+dotnet test --solution PuTTY.slnx -c Release
+dotnet test --project tests/PuTTY.Interop.Tests -c Release --filter "Name=Probe_runs_PuTTY_Conf_inside_the_engine"   # one test
+```
+
+They load the real `puttyengine.dll`, so a test run builds the native engine first. Note the MTP-mode syntax: `--solution`/`--project` flags, not positional paths.
 
 NativeAOT publish: `dotnet publish src/PuTTY.App -c Release -r win-x64` writes `artifacts/publish/PuTTY.App/release_win-x64/PuTTY.App.exe` (about 11 MB plus the Windows App SDK files). A `PublishAot` project produces no `.exe` from plain `dotnet build`; to run a non-AOT build use `dotnet build src/PuTTY.App -c Release -p:PublishAot=false` (it overwrites the same output folder).
 
@@ -58,7 +67,8 @@ build/native.cmd       builds the native engine (CMake + Ninja, VS dev env)    e
 src/PuTTY.Native/      NoTargets project that runs build\native.cmd            exists
 src/PuTTY.Interop/     LibraryImport declarations, AOT-compatible             exists
 src/PuTTY.App/         WinUI 3 app, unpackaged, PublishAot, placeholder UI    exists
-tests/                                                                        not created (issue putty-modern-efy)
+build/NativeEngine.targets  shared: build native first, stage the DLL          exists
+tests/PuTTY.Interop.Tests/  MSTest, loads the real native engine               exists
 ```
 
 - **Layers:** PuTTY core (C) -> engine DLL (C glue plus C++ renderer, flat C ABI) -> `PuTTY.Interop` -> WinUI 3 app. Interop uses `LibraryImport`, `[assembly: DisableRuntimeMarshalling]`, blittable signatures, `[UnmanagedCallersOnly]` callbacks and `SafeHandle`s. The engine starts as a DLL; static linking is a later option.

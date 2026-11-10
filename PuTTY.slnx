@@ -6,10 +6,14 @@
     <File Path="global.json" />
     <File Path="NuGet.Config" />
     <File Path="build/native.cmd" />
+    <File Path="build/NativeEngine.targets" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/PuTTY.Interop/PuTTY.Interop.csproj" />
     <Project Path="src/PuTTY.Native/PuTTY.Native.csproj" />
     <Project Path="src/PuTTY.App/PuTTY.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PuTTY.Interop.Tests/PuTTY.Interop.Tests.csproj" />
   </Folder>
 </Solution>
