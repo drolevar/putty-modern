@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- THROWAWAY SPIKE (Beads putty-modern-gck): how do keystrokes, dead keys, AltGr, the numeric
+       keypad and IME text get from WinUI 3 into PuTTY's TranslateKey? Not part of PuTTY.slnx.
+       Build:  dotnet build spikes/keyboard-ime -c Release
+       The central package versions and the artifacts folder come from the repo root props. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>$(WindowsTfm)</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>KeyboardIme</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Off for normal builds. Publish with -p:PublishAot=true to check NativeAOT (needs UseOptimizedPublish=false). -->
+    <PublishAot>false</PublishAot>
+    <UseOptimizedPublish>false</UseOptimizedPublish>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+  </ItemGroup>
+
+</Project>
