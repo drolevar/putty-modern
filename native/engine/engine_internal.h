@@ -9,6 +9,7 @@
 
 #include "putty.h"
 #include "putty_engine.h"
+#include "render.h"
 
 /* PE_OK if the caller is on the engine thread, PE_ERR_STATE / PE_ERR_THREAD otherwise. */
 int32_t pe_check_engine_thread(void);
@@ -49,5 +50,39 @@ void pe_keys_session_closing(pe_keyctx *ctx);
 
 /* Removes the message hook and the key target. Called by pe_shutdown. (keys.c) */
 void pe_keys_reset(void);
+
+/* ----- The TermWin (termwin.c) ------------------------------------------------------------ */
+
+/*
+ * The TermWin the emulator draws through, drawing onto a renderer. With no renderer it answers
+ * everything and draws nothing (a headless session). Embedded in the session; `owner` is the
+ * pe_session, which the callbacks below take.
+ */
+typedef struct pe_termwin {
+    TermWin tw;
+    void *owner;
+    Terminal *term;
+    pe_renderer *renderer;          /* owned; NULL while headless */
+    bool drawing;                   /* between setup_draw_ctx and free_draw_ctx */
+    uint32_t colours[OSC4_NCOLOURS];    /* 0x00RRGGBB, indexed as the emulator's palette (OSC 4) */
+    int cursor_type;
+    bool bold_font;
+    bool bold_colours;
+    int cursor_x, cursor_y;
+    bool raw_mouse_mode;
+    int sb_total, sb_start, sb_page;
+} pe_termwin;
+
+void pe_termwin_init(pe_termwin *w, void *owner);
+void pe_termwin_use_settings(pe_termwin *w, Terminal *term, Conf *conf);
+void pe_termwin_set_renderer(pe_termwin *w, pe_renderer *renderer);
+void pe_termwin_destroy(pe_termwin *w);
+
+/* What the TermWin needs from, or reports to, its session. `owner` is the pe_session. (session.c) */
+void pe_session_unthrottle(void *owner, size_t bufsize);
+void pe_session_schedule_repaint(void *owner);
+void pe_session_notify_title(void *owner, const char *utf8_title);
+void pe_session_notify_bell(void *owner);
+void pe_session_notify_scrollbar(void *owner, int total, int start, int page);
 
 #endif /* PUTTY_ENGINE_INTERNAL_H */

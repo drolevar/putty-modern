@@ -55,6 +55,12 @@ bool pe_render_set_font(pe_renderer *r, const wchar_t *family, float size_px);
 
 void pe_render_cell_size(const pe_renderer *r, int32_t *width_px, int32_t *height_px);
 
+/* Distance from the top of a cell to the text baseline, in pixels. */
+int32_t pe_render_baseline(const pe_renderer *r);
+
+/* Distance from the top of a cell to the text baseline, in pixels. */
+int32_t pe_render_baseline(const pe_renderer *r);
+
 /* Resizes the drawing surface; its contents are lost and the caller repaints everything. */
 bool pe_render_resize(pe_renderer *r, int32_t width_px, int32_t height_px);
 
@@ -68,6 +74,12 @@ void pe_render_glyph(pe_renderer *r, int32_t col, int32_t row, const wchar_t *te
                      int32_t cells, uint32_t fg, uint32_t style);
 
 void pe_render_underline(pe_renderer *r, int32_t col, int32_t row, int32_t cells, uint32_t rgb);
+
+/* A solid rectangle in pixels, for cursor shapes, strike-through and selection. */
+void pe_render_rect(pe_renderer *r, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t rgb);
+
+/* A solid rectangle in pixels, for cursor shapes, strike-through and selection. */
+void pe_render_rect(pe_renderer *r, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t rgb);
 
 /* A solid block, underline or bar for an active cursor (kind PE_CURSOR_*), or its hollow outline. */
 void pe_render_cursor(pe_renderer *r, int32_t col, int32_t row, int32_t cells, int32_t kind,

@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "putty.h"
+#include "terminal/terminal.h"
 #include "putty_engine.h"
 #include "engine_internal.h"
 
@@ -31,16 +32,20 @@ struct pe_session {
     char *realhost;
 
     /* Present once pe_session_enable_terminal has been called. */
-    TermWin termwin;            /* a null TermWin: the emulator runs, nothing is drawn yet */
+    pe_termwin termwin;         /* what the emulator draws through; headless until a view is attached */
     Terminal *term;
     Ldisc *ldisc;
     struct unicode_data ucsdata;
     pe_keyctx keys;             /* what key translation needs; see keys.c */
+    pe_terminal_events term_events;     /* title, bell and scrollbar reports, set by the host */
+    int32_t view_width, view_height;    /* pixels of the attached view */
+    bool repaint_pending;
 
     pe_session_events events;   /* a copy, so the caller's may live on the stack */
     void *user;
 
     bool closed_notified;       /* 'closed' is delivered once */
+    bool trusted;               /* what the backend last said; applied to the emulator when it exists */
     bool pending_close;         /* closing was requested from inside a callback */
     int callback_depth;         /* how many host callbacks are on the stack */
 
@@ -49,7 +54,6 @@ struct pe_session {
 
 #define SESSION_FROM_SEAT(p) container_of(p, pe_session, seat)
 #define SESSION_FROM_LOGPOLICY(p) container_of(p, pe_session, logpolicy)
-#define SESSION_FROM_TERMWIN(p) container_of(p, pe_session, termwin)
 
 static pe_session *live_sessions;
 
@@ -146,6 +150,39 @@ static void session_nonfatal(Seat *seat, const char *message)
     HOST_EVENT(s, error, message, 0);
 }
 
+/*
+ * Trust sigils. The emulator marks lines written while it is "trusted", meaning PuTTY itself is
+ * talking (a login prompt), so a remote program cannot fake one. Backends say when that ends
+ * (Raw and Telnet at once, SSH after authentication). Remember the answer, because the emulator
+ * may not exist yet when the backend says it.
+ */
+static void session_set_trust_status(Seat *seat, bool trusted)
+{
+    pe_session *s = SESSION_FROM_SEAT(seat);
+    s->trusted = trusted;
+    if (s->term)
+        term_set_trust_status(s->term, trusted);
+}
+
+static bool session_get_cursor_position(Seat *seat, int *x, int *y)
+{
+    pe_session *s = SESSION_FROM_SEAT(seat);
+    if (!s->term)
+        return false;
+    term_get_cursor_position(s->term, x, y);
+    return true;
+}
+
+static bool session_get_window_pixel_size(Seat *seat, int *x, int *y)
+{
+    pe_session *s = SESSION_FROM_SEAT(seat);
+    if (!s->termwin.renderer)
+        return false;
+    *x = s->view_width;
+    *y = s->view_height;
+    return true;
+}
+
 static const SeatVtable session_seat_vt = {
     .output = session_output,
     .eof = nullseat_eof,                    /* remote EOF: if they close, so do we */
@@ -168,14 +205,14 @@ static const SeatVtable session_seat_vt = {
     .echoedit_update = nullseat_echoedit_update,
     .get_display = nullseat_get_display,
     .get_windowid = nullseat_get_windowid,
-    .get_window_pixel_size = nullseat_get_window_pixel_size,
+    .get_window_pixel_size = session_get_window_pixel_size,
     .stripctrl_new = nullseat_stripctrl_new,
-    .set_trust_status = nullseat_set_trust_status,
-    .can_set_trust_status = nullseat_can_set_trust_status_no,
+    .set_trust_status = session_set_trust_status,
+    .can_set_trust_status = nullseat_can_set_trust_status_yes,
     .has_mixed_input_stream = nullseat_has_mixed_input_stream_no,
     .verbose = nullseat_verbose_no,
     .interactive = nullseat_interactive_no, /* no prompting yet */
-    .get_cursor_position = nullseat_get_cursor_position,
+    .get_cursor_position = session_get_cursor_position,
 };
 
 /* ----- LogPolicy ------------------------------------------------------------------------- */
@@ -208,87 +245,6 @@ static const LogPolicyVtable session_logpolicy_vt = {
     .askappend = session_askappend,
     .logging_error = session_logging_error,
     .verbose = null_lp_verbose_no,
-};
-
-/* ----- TermWin (null) --------------------------------------------------------------------
- *
- * The emulator needs a TermWin to exist. This one draws nothing; the renderer replaces it in
- * slice 2. Every method is listed because it is a vtable: a missing one is a crash. The two
- * with obligations: request_resize must be answered with term_resize_request_completed, and
- * unthrottle must reach the backend.
- */
-
-static bool nulltw_setup_draw_ctx(TermWin *tw) { (void)tw; return false; }
-static void nulltw_draw_text(TermWin *tw, int x, int y, wchar_t *text, int len,
-                             unsigned long attrs, int line_attrs, truecolour tc)
-{ (void)tw; (void)x; (void)y; (void)text; (void)len; (void)attrs; (void)line_attrs; (void)tc; }
-static void nulltw_draw_cursor(TermWin *tw, int x, int y, wchar_t *text, int len,
-                               unsigned long attrs, int line_attrs, truecolour tc)
-{ (void)tw; (void)x; (void)y; (void)text; (void)len; (void)attrs; (void)line_attrs; (void)tc; }
-static void nulltw_draw_trust_sigil(TermWin *tw, int x, int y) { (void)tw; (void)x; (void)y; }
-static int nulltw_char_width(TermWin *tw, int uc) { (void)tw; (void)uc; return 1; }
-static void nulltw_free_draw_ctx(TermWin *tw) { (void)tw; }
-static void nulltw_set_cursor_pos(TermWin *tw, int x, int y) { (void)tw; (void)x; (void)y; }
-static void nulltw_set_raw_mouse_mode(TermWin *tw, bool enable) { (void)tw; (void)enable; }
-static void nulltw_set_raw_mouse_mode_pointer(TermWin *tw, bool enable) { (void)tw; (void)enable; }
-static void nulltw_set_scrollbar(TermWin *tw, int total, int start, int page)
-{ (void)tw; (void)total; (void)start; (void)page; }
-static void nulltw_bell(TermWin *tw, int mode) { (void)tw; (void)mode; }
-static void nulltw_clip_write(TermWin *tw, int clipboard, wchar_t *text, int *attrs,
-                              truecolour *colours, int len, bool must_deselect)
-{ (void)tw; (void)clipboard; (void)text; (void)attrs; (void)colours; (void)len; (void)must_deselect; }
-static void nulltw_clip_request_paste(TermWin *tw, int clipboard) { (void)tw; (void)clipboard; }
-static void nulltw_refresh(TermWin *tw) { (void)tw; }
-static void nulltw_request_resize(TermWin *tw, int w, int h)
-{
-    (void)w; (void)h;
-    pe_session *s = SESSION_FROM_TERMWIN(tw);
-    if (s->term)
-        term_resize_request_completed(s->term);   /* we declined, which is allowed */
-}
-static void nulltw_set_title(TermWin *tw, const char *title, int codepage)
-{ (void)tw; (void)title; (void)codepage; }
-static void nulltw_set_icon_title(TermWin *tw, const char *icontitle, int codepage)
-{ (void)tw; (void)icontitle; (void)codepage; }
-static void nulltw_set_minimised(TermWin *tw, bool minimised) { (void)tw; (void)minimised; }
-static void nulltw_set_maximised(TermWin *tw, bool maximised) { (void)tw; (void)maximised; }
-static void nulltw_move(TermWin *tw, int x, int y) { (void)tw; (void)x; (void)y; }
-static void nulltw_set_zorder(TermWin *tw, bool top) { (void)tw; (void)top; }
-static void nulltw_palette_set(TermWin *tw, unsigned start, unsigned ncolours, const rgb *colours)
-{ (void)tw; (void)start; (void)ncolours; (void)colours; }
-static void nulltw_palette_get_overrides(TermWin *tw, Terminal *term) { (void)tw; (void)term; }
-static void nulltw_unthrottle(TermWin *tw, size_t bufsize)
-{
-    pe_session *s = SESSION_FROM_TERMWIN(tw);
-    if (s->backend)
-        backend_unthrottle(s->backend, bufsize);
-}
-
-static const TermWinVtable null_termwin_vt = {
-    .setup_draw_ctx = nulltw_setup_draw_ctx,
-    .draw_text = nulltw_draw_text,
-    .draw_cursor = nulltw_draw_cursor,
-    .draw_trust_sigil = nulltw_draw_trust_sigil,
-    .char_width = nulltw_char_width,
-    .free_draw_ctx = nulltw_free_draw_ctx,
-    .set_cursor_pos = nulltw_set_cursor_pos,
-    .set_raw_mouse_mode = nulltw_set_raw_mouse_mode,
-    .set_raw_mouse_mode_pointer = nulltw_set_raw_mouse_mode_pointer,
-    .set_scrollbar = nulltw_set_scrollbar,
-    .bell = nulltw_bell,
-    .clip_write = nulltw_clip_write,
-    .clip_request_paste = nulltw_clip_request_paste,
-    .refresh = nulltw_refresh,
-    .request_resize = nulltw_request_resize,
-    .set_title = nulltw_set_title,
-    .set_icon_title = nulltw_set_icon_title,
-    .set_minimised = nulltw_set_minimised,
-    .set_maximised = nulltw_set_maximised,
-    .move = nulltw_move,
-    .set_zorder = nulltw_set_zorder,
-    .palette_set = nulltw_palette_set,
-    .palette_get_overrides = nulltw_palette_get_overrides,
-    .unthrottle = nulltw_unthrottle,
 };
 
 /* ----- Life cycle ----------------------------------------------------------------------- */
@@ -332,6 +288,7 @@ static void session_destroy(pe_session *s)
         term_provide_logctx(s->term, NULL);
         term_free(s->term);
     }
+    pe_termwin_destroy(&s->termwin);
     if (s->logctx)
         log_free(s->logctx);
     if (s->conf)
@@ -360,6 +317,7 @@ PE_API int32_t pe_session_open(const char *host, int32_t port, int32_t protocol,
     memset(s, 0, sizeof(*s));
     s->seat.vt = &session_seat_vt;
     s->logpolicy.vt = &session_logpolicy_vt;
+    s->trusted = true;          /* until a backend says otherwise */
     s->events = *events;
     s->user = user;
 
@@ -406,8 +364,10 @@ PE_API int32_t pe_session_enable_terminal(pe_session *s, int32_t columns, int32_
     init_ucs(s->conf, &s->ucsdata);
 
     /* The order window.c uses (WinMain, then start_backend). */
-    s->termwin.vt = &null_termwin_vt;
-    s->term = term_init(s->conf, &s->ucsdata, &s->termwin);
+    pe_termwin_init(&s->termwin, s);
+    s->term = term_init(s->conf, &s->ucsdata, &s->termwin.tw);
+    pe_termwin_use_settings(&s->termwin, s->term, s->conf);
+    term_set_trust_status(s->term, s->trusted);
     term_provide_logctx(s->term, s->logctx);
     term_size(s->term, rows, columns, conf_get_int(s->conf, CONF_savelines));
     term_setup_window_titles(s->term, s->realhost ? s->realhost : "");
@@ -450,6 +410,212 @@ PE_API int32_t pe_session_set_local_echo_edit(pe_session *s, int32_t echo, int32
     ldisc_configure(s->ldisc, s->conf);
     ldisc_echoedit_update(s->ldisc);
     return PE_OK;
+}
+
+/* ----- The view: the emulator's size, its renderer and what it reports ---------------------- */
+
+/* Calls a host report unless the session is closing (see HOST_EVENT). */
+#define TERMINAL_EVENT(s, fn, ...)                                       \
+    do {                                                                    \
+        if (!(s)->pending_close && (s)->term_events.fn) {                \
+            (s)->callback_depth++;                                          \
+            (s)->term_events.fn((s)->user, __VA_ARGS__);                 \
+            (s)->callback_depth--;                                          \
+        }                                                                   \
+    } while (0)
+
+#define TERMINAL_EVENT_NOARGS(s, fn)                                     \
+    do {                                                                    \
+        if (!(s)->pending_close && (s)->term_events.fn) {                \
+            (s)->callback_depth++;                                          \
+            (s)->term_events.fn((s)->user);                              \
+            (s)->callback_depth--;                                          \
+        }                                                                   \
+    } while (0)
+
+void pe_session_unthrottle(void *owner, size_t bufsize)
+{
+    pe_session *s = (pe_session *)owner;
+    if (session_is_live(s) && s->backend)
+        backend_unthrottle(s->backend, bufsize);
+}
+
+void pe_session_notify_title(void *owner, const char *utf8_title)
+{
+    pe_session *s = (pe_session *)owner;
+    if (session_is_live(s))
+        TERMINAL_EVENT(s, title, utf8_title);
+}
+
+void pe_session_notify_bell(void *owner)
+{
+    pe_session *s = (pe_session *)owner;
+    if (session_is_live(s))
+        TERMINAL_EVENT_NOARGS(s, bell);
+}
+
+void pe_session_notify_scrollbar(void *owner, int total, int start, int page)
+{
+    pe_session *s = (pe_session *)owner;
+    if (session_is_live(s))
+        TERMINAL_EVENT(s, scrollbar, total, start, page);
+}
+
+static void repaint_callback(void *ctx)
+{
+    pe_session *s = (pe_session *)ctx;
+    if (!session_is_live(s))        /* it may have been closed since this was queued */
+        return;
+    s->repaint_pending = false;
+    if (s->term) {
+        term_invalidate(s->term);
+        term_update(s->term);
+    }
+}
+
+/* A repaint of everything, soon but not from inside the emulator's own drawing. */
+void pe_session_schedule_repaint(void *owner)
+{
+    pe_session *s = (pe_session *)owner;
+    if (!session_is_live(s) || s->repaint_pending)
+        return;
+    s->repaint_pending = true;
+    queue_toplevel_callback(repaint_callback, s);
+}
+
+PE_API int32_t pe_session_set_terminal_events(pe_session *s, const pe_terminal_events *events)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || !events)
+        return PE_ERR_STATE;
+    s->term_events = *events;
+    return PE_OK;
+}
+
+/* After the font or the view size changed: how many cells fit, tell the emulator and the server, repaint. */
+static void apply_view_geometry(pe_session *s)
+{
+    pe_renderer *r = s->termwin.renderer;
+    int32_t cw = 0, ch = 0;
+    pe_render_cell_size(r, &cw, &ch);
+    int cols = cw > 0 ? s->view_width / cw : 1;
+    int rows = ch > 0 ? s->view_height / ch : 1;
+    if (cols < 1) cols = 1;
+    if (rows < 1) rows = 1;
+    term_size(s->term, rows, cols, conf_get_int(s->conf, CONF_savelines));
+    if (s->backend)
+        backend_size(s->backend, cols, rows);
+    term_invalidate(s->term);
+    term_update(s->term);
+}
+
+static int32_t attach_view(pe_session *s, pe_renderer *r, const wchar_t *font, float size_px,
+                           int32_t width_px, int32_t height_px)
+{
+    if (!r)
+        return PE_ERR_FAILED;
+    if (!pe_render_set_font(r, font, size_px)) {
+        pe_render_destroy(r);
+        return PE_ERR_FAILED;
+    }
+    if (!s->term) {
+        /* No terminal yet: start one at a placeholder size, apply_view_geometry corrects it. */
+        int32_t rc = pe_session_enable_terminal(s, 80, 24);
+        if (rc != PE_OK) {
+            pe_render_destroy(r);
+            return rc;
+        }
+    }
+    s->view_width = width_px;
+    s->view_height = height_px;
+    pe_termwin_set_renderer(&s->termwin, r);
+    apply_view_geometry(s);
+    return PE_OK;
+}
+
+static bool view_usable(pe_session *s)
+{
+    return session_is_live(s) && !s->pending_close && s->term && s->termwin.renderer;
+}
+
+PE_API int32_t pe_session_attach_offscreen_view(pe_session *s, int32_t width_px, int32_t height_px,
+                                                const wchar_t *font_family, float size_px)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || s->pending_close || !s->backend || s->termwin.renderer || !font_family)
+        return PE_ERR_STATE;
+    return attach_view(s, pe_render_create_offscreen(width_px, height_px), font_family, size_px,
+                       width_px, height_px);
+}
+
+PE_API int32_t pe_session_attach_panel_view(pe_session *s, void *panel, int32_t width_px,
+                                            int32_t height_px, const wchar_t *font_family, float size_px)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || s->pending_close || !s->backend || s->termwin.renderer || !font_family || !panel)
+        return PE_ERR_STATE;
+    return attach_view(s, pe_render_create_for_panel(panel, width_px, height_px), font_family, size_px,
+                       width_px, height_px);
+}
+
+PE_API int32_t pe_session_resize_view(pe_session *s, int32_t width_px, int32_t height_px)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!view_usable(s))
+        return PE_ERR_STATE;
+    if (!pe_render_resize(s->termwin.renderer, width_px, height_px))
+        return PE_ERR_FAILED;
+    s->view_width = width_px;
+    s->view_height = height_px;
+    apply_view_geometry(s);
+    return PE_OK;
+}
+
+PE_API int32_t pe_session_set_font(pe_session *s, const wchar_t *font_family, float size_px)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!view_usable(s) || !font_family)
+        return PE_ERR_STATE;
+    if (!pe_render_set_font(s->termwin.renderer, font_family, size_px))
+        return PE_ERR_FAILED;
+    apply_view_geometry(s);
+    return PE_OK;
+}
+
+PE_API int32_t pe_session_terminal_geometry(pe_session *s, pe_terminal_geometry *out)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || !s->term || !out)
+        return PE_ERR_STATE;
+    out->columns = s->term->cols;
+    out->rows = s->term->rows;
+    out->cell_width = 0;
+    out->cell_height = 0;
+    if (s->termwin.renderer)
+        pe_render_cell_size(s->termwin.renderer, &out->cell_width, &out->cell_height);
+    return PE_OK;
+}
+
+PE_API int32_t pe_diag_session_read_pixel(pe_session *s, int32_t x, int32_t y, uint32_t *rgb)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!view_usable(s) || !rgb)
+        return PE_ERR_STATE;
+    return pe_render_read_pixel(s->termwin.renderer, x, y, rgb) ? PE_OK : PE_ERR_FAILED;
 }
 
 pe_keyctx *pe_session_keyctx(pe_session *session)

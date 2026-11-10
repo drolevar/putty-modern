@@ -12,6 +12,25 @@ public enum SessionProtocol
     Ssh = 3,
 }
 
+/// <summary>The terminal's title changed (an escape sequence from the server).</summary>
+public sealed class SessionTitleEventArgs(string title) : EventArgs
+{
+    public string Title { get; } = title;
+}
+
+/// <summary>The scrollback changed: <see cref="Total"/> lines in all, <see cref="Start"/> the first one shown, <see cref="Page"/> lines on screen.</summary>
+public sealed class SessionScrollbarEventArgs(int total, int start, int page) : EventArgs
+{
+    public int Total { get; } = total;
+
+    public int Start { get; } = start;
+
+    public int Page { get; } = page;
+}
+
+/// <summary>The terminal's size in character cells and the size of one cell in pixels (0 until a view is attached).</summary>
+public readonly record struct TerminalGeometry(int Columns, int Rows, int CellWidth, int CellHeight);
+
 /// <summary>A setting that is either decided by the protocol or forced on or off.</summary>
 public enum LocalMode
 {
@@ -91,6 +110,15 @@ public sealed unsafe class PuttySession : IDisposable
     /// <summary>The connection has ended. Raised once; the session still has to be disposed.</summary>
     public event EventHandler? Closed;
 
+    /// <summary>The terminal's title changed. Raised on the engine thread.</summary>
+    public event EventHandler<SessionTitleEventArgs>? TitleChanged;
+
+    /// <summary>The terminal rang its bell. Raised on the engine thread.</summary>
+    public event EventHandler? Bell;
+
+    /// <summary>The scrollback changed. Raised on the engine thread.</summary>
+    public event EventHandler<SessionScrollbarEventArgs>? ScrollbarChanged;
+
     /// <summary>The most recent error message, or null if none has been reported.</summary>
     public string? LastError { get; private set; }
 
@@ -128,6 +156,12 @@ public sealed unsafe class PuttySession : IDisposable
         }
 
         handle = native;
+
+        NativeTerminalEvents terminal = default;
+        terminal.Title = &OnTitle;
+        terminal.Bell = &OnBell;
+        terminal.Scrollbar = &OnScrollbar;
+        PuttyEngine.Check(NativeMethods.SessionSetTerminalEvents(handle, &terminal), nameof(Start));
     }
 
     /// <summary>
@@ -145,6 +179,64 @@ public sealed unsafe class PuttySession : IDisposable
         }
 
         PuttyEngine.Check(NativeMethods.SessionEnableTerminal(handle, columns, rows), nameof(EnableTerminal));
+    }
+
+    /// <summary>
+    /// Gives the terminal a drawing surface that is a bitmap in memory: for tests and headless
+    /// rendering. The terminal is created if needed and sized to the whole cells that fit.
+    /// </summary>
+    public void AttachOffscreenView(int widthPixels, int heightPixels, string fontFamily, float fontSizePixels)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(
+            NativeMethods.SessionAttachOffscreenView(handle, widthPixels, heightPixels, fontFamily, fontSizePixels),
+            nameof(AttachOffscreenView));
+    }
+
+    /// <summary>
+    /// Gives the terminal a drawing surface that is plugged into a XAML <c>SwapChainPanel</c>:
+    /// <paramref name="panelUnknown"/> is the panel's <c>IUnknown</c> (its ABI pointer). Sizes are
+    /// physical pixels.
+    /// </summary>
+    public void AttachPanelView(nint panelUnknown, int widthPixels, int heightPixels, string fontFamily, float fontSizePixels)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(
+            NativeMethods.SessionAttachPanelView(handle, panelUnknown, widthPixels, heightPixels, fontFamily, fontSizePixels),
+            nameof(AttachPanelView));
+    }
+
+    /// <summary>The surface changed size (or the DPI scale did: pass the new physical size). The terminal is refitted.</summary>
+    public void ResizeView(int widthPixels, int heightPixels)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(NativeMethods.SessionResizeView(handle, widthPixels, heightPixels), nameof(ResizeView));
+    }
+
+    /// <summary>A different font or size. The terminal is refitted to the surface.</summary>
+    public void SetFont(string fontFamily, float fontSizePixels)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(NativeMethods.SessionSetFont(handle, fontFamily, fontSizePixels), nameof(SetFont));
+    }
+
+    /// <summary>The terminal's size in cells and the cell size in pixels.</summary>
+    public TerminalGeometry Geometry
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            PuttyEngine.Check(NativeMethods.SessionTerminalGeometry(handle, out NativeTerminalGeometry g), nameof(Geometry));
+            return new TerminalGeometry(g.Columns, g.Rows, g.CellWidth, g.CellHeight);
+        }
+    }
+
+    /// <summary>For tests: one pixel (0x00RRGGBB) of the last frame of an offscreen view.</summary>
+    public uint ReadPixel(int x, int y)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(NativeMethods.DiagSessionReadPixel(handle, x, y, out uint rgb), nameof(ReadPixel));
+        return rgb;
     }
 
     /// <summary>
@@ -294,6 +386,55 @@ public sealed unsafe class PuttySession : IDisposable
         catch (Exception ex)
         {
             Debug.WriteLine($"PuttySession.Error handler threw: {ex}");
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static void OnTitle(nint user, byte* title)
+    {
+        try
+        {
+            if (From(user) is { } session)
+            {
+                string text = Marshal.PtrToStringUTF8((nint)title) ?? string.Empty;
+                session.TitleChanged?.Invoke(session, new SessionTitleEventArgs(text));
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"PuttySession.TitleChanged handler threw: {ex}");
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static void OnBell(nint user)
+    {
+        try
+        {
+            if (From(user) is { } session)
+            {
+                session.Bell?.Invoke(session, EventArgs.Empty);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"PuttySession.Bell handler threw: {ex}");
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static void OnScrollbar(nint user, int total, int start, int page)
+    {
+        try
+        {
+            if (From(user) is { } session)
+            {
+                session.ScrollbarChanged?.Invoke(session, new SessionScrollbarEventArgs(total, start, page));
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"PuttySession.ScrollbarChanged handler threw: {ex}");
         }
     }
 

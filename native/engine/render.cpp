@@ -73,6 +73,7 @@ struct pe_renderer {
     ComPtr<IDWriteTextFormat> bold;
     float cellW = 8;
     float cellH = 16;
+    float baseline = 12;
 
     ID2D1RenderTarget *Target() const
     {
@@ -263,6 +264,7 @@ bool pe_render_set_font(pe_renderer *r, const wchar_t *family, float size_px)
 
     r->cellW = std::fmax(1.0f, std::round(metrics.widthIncludingTrailingWhitespace));
     r->cellH = std::fmax(1.0f, std::ceil(line.height));
+    r->baseline = std::fmin(std::fmax(1.0f, std::round(line.baseline)), r->cellH - 1.0f);
 
     for (IDWriteTextFormat *format : { regular.Get(), bold.Get() }) {
         format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -273,6 +275,21 @@ bool pe_render_set_font(pe_renderer *r, const wchar_t *family, float size_px)
     r->regular = regular;
     r->bold = bold;
     return true;
+}
+
+int32_t pe_render_baseline(const pe_renderer *r)
+{
+    return r ? static_cast<int32_t>(r->baseline) : 0;
+}
+
+void pe_render_rect(pe_renderer *r, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t rgb)
+{
+    if (!r || width < 1 || height < 1)
+        return;
+    r->brush->SetColor(ColorOf(rgb));
+    r->Target()->FillRectangle(D2D1::RectF(static_cast<float>(x), static_cast<float>(y),
+                                           static_cast<float>(x + width), static_cast<float>(y + height)),
+                               r->brush.Get());
 }
 
 void pe_render_cell_size(const pe_renderer *r, int32_t *width_px, int32_t *height_px)
@@ -334,7 +351,8 @@ void pe_render_underline(pe_renderer *r, int32_t col, int32_t row, int32_t cells
     if (!r || cells < 1)
         return;
     r->brush->SetColor(ColorOf(rgb));
-    float y = (row + 1) * r->cellH - 2.0f;
+    // One pixel below the baseline, as PuTTY draws it, kept inside the cell.
+    float y = row * r->cellH + std::fmin(r->baseline + 1.0f, r->cellH - 1.0f);
     r->Target()->FillRectangle(D2D1::RectF(col * r->cellW, y, (col + cells) * r->cellW, y + 1.0f), r->brush.Get());
 }
 

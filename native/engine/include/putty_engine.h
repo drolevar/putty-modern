@@ -124,6 +124,50 @@ PE_API int32_t pe_session_close(pe_session *session);
 PE_API int32_t pe_session_enable_terminal(pe_session *session, int32_t columns, int32_t rows);
 
 /*
+ * Reports from the terminal emulator, called on the engine thread. Set with
+ * pe_session_set_terminal_events; any member may be NULL. `title` text is UTF-8 and valid only
+ * during the call. `scrollbar` gives the scrollback (total lines, first visible line, lines
+ * on screen).
+ */
+typedef struct pe_terminal_events {
+    void (*title)(void *user, const char *utf8_title);
+    void (*bell)(void *user);
+    void (*scrollbar)(void *user, int32_t total, int32_t start, int32_t page);
+} pe_terminal_events;
+
+PE_API int32_t pe_session_set_terminal_events(pe_session *session, const pe_terminal_events *events);
+
+/*
+ * Gives the session's terminal a drawing surface. The terminal is created if it is not there yet,
+ * and its size becomes as many whole character cells as fit the surface in the given font; the
+ * server is told. Draws to an offscreen bitmap (tests, headless rendering) or into a XAML
+ * SwapChainPanel (`panel` is its IUnknown). PE_ERR_FAILED if the font is not installed or the
+ * surface cannot be created; PE_ERR_STATE if the session already has a view.
+ */
+PE_API int32_t pe_session_attach_offscreen_view(pe_session *session, int32_t width_px, int32_t height_px,
+                                                const wchar_t *font_family, float size_px);
+PE_API int32_t pe_session_attach_panel_view(pe_session *session, void *panel, int32_t width_px,
+                                            int32_t height_px, const wchar_t *font_family, float size_px);
+
+/* The surface changed size (or the DPI scale did: pass the new physical size). */
+PE_API int32_t pe_session_resize_view(pe_session *session, int32_t width_px, int32_t height_px);
+
+/* A different font or size; the terminal is refitted to the surface. */
+PE_API int32_t pe_session_set_font(pe_session *session, const wchar_t *font_family, float size_px);
+
+typedef struct pe_terminal_geometry {
+    int32_t columns;
+    int32_t rows;
+    int32_t cell_width;         /* pixels; 0 without a view */
+    int32_t cell_height;
+} pe_terminal_geometry;
+
+PE_API int32_t pe_session_terminal_geometry(pe_session *session, pe_terminal_geometry *out);
+
+/* Offscreen views only: one pixel of the last finished frame, 0x00RRGGBB. For tests. */
+PE_API int32_t pe_diag_session_read_pixel(pe_session *session, int32_t x, int32_t y, uint32_t *rgb);
+
+/*
  * Local echo and local line editing, the two Terminal settings that decide whether the line
  * discipline buffers typing until Enter. Each is PE_LOCAL_AUTO (the protocol decides: on for
  * Raw, off for SSH and, once negotiated, Telnet), PE_LOCAL_ON or PE_LOCAL_OFF. The session needs

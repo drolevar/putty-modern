@@ -47,6 +47,27 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_session_enable_terminal")]
     internal static partial int SessionEnableTerminal(nint session, int columns, int rows);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_set_terminal_events")]
+    internal static unsafe partial int SessionSetTerminalEvents(nint session, NativeTerminalEvents* events);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_attach_offscreen_view", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int SessionAttachOffscreenView(nint session, int widthPx, int heightPx, string fontFamily, float sizePx);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_attach_panel_view", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int SessionAttachPanelView(nint session, nint panel, int widthPx, int heightPx, string fontFamily, float sizePx);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_resize_view")]
+    internal static partial int SessionResizeView(nint session, int widthPx, int heightPx);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_set_font", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int SessionSetFont(nint session, string fontFamily, float sizePx);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_terminal_geometry")]
+    internal static partial int SessionTerminalGeometry(nint session, out NativeTerminalGeometry geometry);
+
+    [LibraryImport(Library, EntryPoint = "pe_diag_session_read_pixel")]
+    internal static partial int DiagSessionReadPixel(nint session, int x, int y, out uint rgb);
+
     [LibraryImport(Library, EntryPoint = "pe_session_set_local_echo_edit")]
     internal static partial int SessionSetLocalEchoEdit(nint session, int echo, int edit);
 
@@ -84,6 +105,25 @@ internal unsafe struct NativeSessionEvents
     public delegate* unmanaged<nint, byte*, void> Log;                 // user, utf8 text
     public delegate* unmanaged<nint, byte*, int, void> Error;          // user, utf8 message, isFatal
     public delegate* unmanaged<nint, void> Closed;                     // user
+}
+
+/// <summary>Mirrors <c>pe_terminal_events</c>.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeTerminalEvents
+{
+    public delegate* unmanaged<nint, byte*, void> Title;               // user, utf8 title
+    public delegate* unmanaged<nint, void> Bell;                       // user
+    public delegate* unmanaged<nint, int, int, int, void> Scrollbar;   // user, total, start, page
+}
+
+/// <summary>Mirrors <c>pe_terminal_geometry</c>.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeTerminalGeometry
+{
+    public int Columns;
+    public int Rows;
+    public int CellWidth;
+    public int CellHeight;
 }
 
 /// <summary>Mirrors <c>pe_diag_render_result</c>.</summary>
