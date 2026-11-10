@@ -10,9 +10,12 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "putty.h"
 #include "ssh.h"            /* share_can_be_*, old_keyfile_warning */
+#include "putty_engine.h"
+#include "engine_internal.h"
 
 /*
  * The module handle of this DLL. PuTTY uses it to register window classes (the hidden timer
@@ -65,10 +68,38 @@ NORETURN void cleanup_exit(int code)
 }
 
 /*
- * A non-fatal problem that is not tied to a session, for example the random seed file
- * could not be written. For now it goes to the debugger; the event-loop and Seat work
- * (slice 1, tasks 1b and 1c) forwards it to the host.
+ * Warnings that are not tied to a session. PuTTY calls these from the engine thread; the host
+ * registers a handler with pe_set_warning_handler() and gets the text there. Without one they
+ * go to the debugger only.
  */
+static struct {
+    pe_warning_fn handler;
+    void *user;
+} warning_sink;
+
+void pe_warnings_reset(void)
+{
+    memset(&warning_sink, 0, sizeof(warning_sink));
+}
+
+PE_API int32_t pe_set_warning_handler(pe_warning_fn handler, void *user)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    warning_sink.handler = handler;
+    warning_sink.user = user;
+    return PE_OK;
+}
+
+static void raise_warning(int32_t kind, const char *message)
+{
+    debug_message("warning", message);
+    if (warning_sink.handler)
+        warning_sink.handler(warning_sink.user, kind, message);
+}
+
+/* A non-fatal problem, for example the random seed file could not be written. */
 void nonfatal(const char *fmt, ...)
 {
     va_list ap;
@@ -76,14 +107,36 @@ void nonfatal(const char *fmt, ...)
     char *msg = dupvprintf(fmt, ap);
     va_end(ap);
 
-    debug_message("warning", msg);
+    raise_warning(PE_WARNING_NONFATAL, msg);
     sfree(msg);
 }
 
-/* A loaded private key file uses an old format. Same forwarding plan as nonfatal(). */
+/*
+ * A loaded SSH-2 private key uses the old file format. The wording is the one PuTTY's console
+ * front end prints (windows/console.c), on one line.
+ */
 void old_keyfile_warning(void)
 {
-    debug_message("warning", "a private key file uses an old format");
+    raise_warning(PE_WARNING_OLD_KEY_FORMAT,
+                  "You are loading an SSH-2 private key which has an old version of the file "
+                  "format. This means your key file is not fully tamperproof. Future versions "
+                  "of PuTTY may stop supporting this private key format, so we recommend you "
+                  "convert your key to the new format. Once the key is loaded into PuTTYgen, "
+                  "you can perform this conversion simply by saving it again.");
+}
+
+PE_API int32_t pe_diag_raise_warning(int32_t kind)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (kind == PE_WARNING_NONFATAL)
+        nonfatal("diagnostic warning %d", 42);
+    else if (kind == PE_WARNING_OLD_KEY_FORMAT)
+        old_keyfile_warning();
+    else
+        return PE_ERR_STATE;
+    return PE_OK;
 }
 
 /*

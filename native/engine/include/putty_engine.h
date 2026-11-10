@@ -113,6 +113,22 @@ PE_API int32_t pe_session_is_connected(pe_session *session);
 /* Closes the connection and frees the session. The handle is invalid afterwards. */
 PE_API int32_t pe_session_close(pe_session *session);
 
+/* ----- Warnings that belong to no session ------------------------------------------ */
+
+/* What PuTTY's core reports through its process-level callbacks. */
+#define PE_WARNING_NONFATAL       0   /* a problem that does not stop anything, e.g. the random seed
+                                         file could not be written */
+#define PE_WARNING_OLD_KEY_FORMAT 1   /* a loaded SSH-2 private key uses the old, not fully
+                                         tamperproof file format */
+
+/*
+ * Called on the engine thread with UTF-8 text that is valid only during the call. Without a
+ * handler warnings go to the debugger only. The handler is dropped by pe_shutdown().
+ */
+typedef void (*pe_warning_fn)(void *user, int32_t kind, const char *message);
+
+PE_API int32_t pe_set_warning_handler(pe_warning_fn handler, void *user);
+
 /* ----- Diagnostics, used by tests to check the event loop ------------------------- */
 
 typedef struct pe_diag_counters {
@@ -128,6 +144,9 @@ PE_API int32_t pe_diag_schedule_timer(uint32_t delay_ms);
 
 /* Reads the counters. They are reset to zero by pe_init(). */
 PE_API int32_t pe_diag_get_counters(pe_diag_counters *out);
+
+/* Makes PuTTY's core raise a warning of the given PE_WARNING_* kind, as it would itself. */
+PE_API int32_t pe_diag_raise_warning(int32_t kind);
 
 #ifdef __cplusplus
 }

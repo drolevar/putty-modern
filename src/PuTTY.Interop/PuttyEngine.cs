@@ -1,4 +1,25 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
 namespace PuTTY.Interop;
+
+/// <summary>What kind of process-level warning PuTTY's core raised.</summary>
+public enum EngineWarningKind
+{
+    /// <summary>A problem that stops nothing, for example the random seed file could not be written.</summary>
+    NonFatal = 0,
+
+    /// <summary>A loaded SSH-2 private key uses the old, not fully tamperproof file format.</summary>
+    OldKeyFormat = 1,
+}
+
+/// <summary>A warning that belongs to no session.</summary>
+public sealed class EngineWarningEventArgs(EngineWarningKind kind, string message) : EventArgs
+{
+    public EngineWarningKind Kind { get; } = kind;
+
+    public string Message { get; } = message;
+}
 
 /// <summary>
 /// Entry point to the native PuTTY engine (<c>puttyengine.dll</c>).
@@ -41,7 +62,36 @@ public static class PuttyEngine
     /// Starts the engine on the calling thread. May be called again after
     /// <see cref="Shutdown"/>, including from a different thread.
     /// </summary>
-    public static void Initialize() => Check(NativeMethods.Init(), nameof(Initialize));
+    public static void Initialize()
+    {
+        Check(NativeMethods.Init(), nameof(Initialize));
+        RegisterWarningHandler();
+    }
+
+    /// <summary>
+    /// Raised on the engine thread for warnings PuTTY raises outside any session (a problem
+    /// writing the random seed file, an old-format private key). Without a subscriber they are only
+    /// written to the debugger.
+    /// </summary>
+    public static event EventHandler<EngineWarningEventArgs>? Warning;
+
+    private static unsafe void RegisterWarningHandler() =>
+        Check(NativeMethods.SetWarningHandler(&OnWarning, 0), nameof(Warning));
+
+    [UnmanagedCallersOnly]
+    private static unsafe void OnWarning(nint user, int kind, byte* message)
+    {
+        try
+        {
+            string text = Marshal.PtrToStringUTF8((nint)message) ?? string.Empty;
+            Warning?.Invoke(null, new EngineWarningEventArgs((EngineWarningKind)kind, text));
+        }
+        catch (Exception ex)
+        {
+            // An exception must never cross back into the engine.
+            Debug.WriteLine($"PuttyEngine.Warning handler threw: {ex}");
+        }
+    }
 
     /// <summary>Closes every socket, drains pending work and stops the engine.</summary>
     public static void Shutdown() => Check(NativeMethods.Shutdown(), nameof(Shutdown));
@@ -72,6 +122,10 @@ public static class PuttyEngine
         /// <summary>Schedules a PuTTY timer that fires after <paramref name="delay"/>.</summary>
         public static void ScheduleTimer(TimeSpan delay) =>
             Check(NativeMethods.DiagScheduleTimer(ToMilliseconds(delay)), nameof(ScheduleTimer));
+
+        /// <summary>Makes PuTTY's core raise a warning of the given kind, as it would itself.</summary>
+        public static void RaiseWarning(EngineWarningKind kind) =>
+            Check(NativeMethods.DiagRaiseWarning((int)kind), nameof(RaiseWarning));
 
         /// <summary>Reads the counters; <see cref="Initialize"/> resets them to zero.</summary>
         public static DiagnosticCounters GetCounters()

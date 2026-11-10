@@ -156,6 +156,7 @@ PE_API int32_t pe_shutdown(void)
 
     winselgui_clear_hwnd();
     DestroyWindow(pe.hwnd);
+    pe_warnings_reset();
     memset(&pe, 0, sizeof(pe));
     return PE_OK;
 }

@@ -13,4 +13,7 @@ int32_t pe_check_engine_thread(void);
 /* Closes every session that is still open. Called by pe_shutdown before sockets are closed. */
 void pe_sessions_close_all(void);
 
+/* Drops the warning handler. Called by pe_shutdown. */
+void pe_warnings_reset(void);
+
 #endif /* PUTTY_ENGINE_INTERNAL_H */

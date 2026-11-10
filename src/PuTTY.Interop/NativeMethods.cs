@@ -44,6 +44,12 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_session_close")]
     internal static partial int SessionClose(nint session);
 
+    [LibraryImport(Library, EntryPoint = "pe_set_warning_handler")]
+    internal static unsafe partial int SetWarningHandler(delegate* unmanaged<nint, int, byte*, void> handler, nint user);
+
+    [LibraryImport(Library, EntryPoint = "pe_diag_raise_warning")]
+    internal static partial int DiagRaiseWarning(int kind);
+
     [LibraryImport(Library, EntryPoint = "pe_diag_queue_callback")]
     internal static partial int DiagQueueCallback();
 
