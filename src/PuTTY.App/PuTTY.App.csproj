@@ -41,6 +41,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PuTTY.Interop\PuTTY.Interop.csproj" />
+    <!-- Builds the native engine first (CMake + Ninja). It produces no assembly, so skip
+         target-framework negotiation and reference no output. -->
+    <ProjectReference Include="..\PuTTY.Native\PuTTY.Native.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
   <!-- WORKAROUND (tracked in Beads issue putty-modern-8nd): Digi21.WinUI.Docking is not
@@ -52,14 +57,16 @@
     <TrimmerRootAssembly Include="Digi21.WinUI.Docking" />
   </ItemGroup>
 
-  <!-- The native engine is built separately for now (cmake with the x64 preset in native/);
-       copy it next to the app when present. An MSBuild wrapper that builds it
-       as part of dotnet build is tracked as a follow-up. -->
-  <ItemGroup>
-    <Content Include="$(MSBuildThisFileDirectory)..\..\artifacts\native\x64\Release\puttyengine.dll"
-             Link="puttyengine.dll"
-             CopyToOutputDirectory="PreserveNewest"
-             Condition="Exists('$(MSBuildThisFileDirectory)..\..\artifacts\native\x64\Release\puttyengine.dll')" />
-  </ItemGroup>
+  <!-- Ship the native engine next to the app (build output and publish output). It is added
+       in a target, not as a static item with an Exists() condition: the DLL does not exist
+       yet at evaluation time on a clean tree. The PuTTY.Native reference guarantees it has
+       been built by the time this runs. -->
+  <Target Name="StageNativeEngine" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <Content Include="$(ArtifactsPath)\native\x64\puttyengine.dll"
+               Link="puttyengine.dll"
+               CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
 </Project>

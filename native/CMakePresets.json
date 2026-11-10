@@ -4,14 +4,15 @@
   "configurePresets": [
     {
       "name": "x64",
-      "displayName": "x64 (Visual Studio 2026)",
-      "generator": "Visual Studio 18 2026",
-      "architecture": "x64",
-      "binaryDir": "${sourceDir}/../artifacts/native/x64"
+      "displayName": "x64 (Ninja, MSVC)",
+      "description": "Needs a Visual Studio developer environment; build\\native.cmd sets one up.",
+      "generator": "Ninja",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "binaryDir": "${sourceDir}/../artifacts/native/x64",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }
   ],
   "buildPresets": [
-    { "name": "x64-release", "configurePreset": "x64", "configuration": "Release" },
-    { "name": "x64-debug", "configurePreset": "x64", "configuration": "Debug" }
+    { "name": "x64", "configurePreset": "x64" }
   ]
 }

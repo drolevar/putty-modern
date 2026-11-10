@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.Build.NoTargets">
+
+  <!-- Builds nothing itself. Its only job is to run the native build (CMake + Ninja through
+       build\native.cmd) as part of dotnet build, so a project that references this one gets
+       puttyengine.dll built first. SDK version comes from global.json (msbuild-sdks). -->
+
+  <PropertyGroup>
+    <TargetFramework>$(NetVersion)</TargetFramework>
+  </PropertyGroup>
+
+  <Target Name="BuildNativeEngine" AfterTargets="Build">
+    <Exec Command="&quot;$(MSBuildThisFileDirectory)..\..\build\native.cmd&quot; x64" />
+  </Target>
+
+</Project>

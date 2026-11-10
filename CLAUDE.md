@@ -12,25 +12,20 @@ A WinUI 3 front end for PuTTY: a C# app (.NET 11, NativeAOT) on top of a native 
 
 - .NET SDK `11.0.100-rc.3.26522.148` (the default here). Visual Studio 2026 Enterprise 18.11, MSVC 14.51, Windows SDKs 10.0.26100.0 and 10.0.28000.0.
 - MSVC has **x64/x86 targets only**; the ARM64 tools are not installed, so native builds are x64-only for now.
-- `cmake` is not on PATH. Use VS's bundled CMake 4.3.1: `C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe` (Ninja is in the sibling `..\Ninja\` folder).
+- `cmake` and `ninja` are not on PATH. Visual Studio bundles CMake 4.3.1 (`C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`) and Ninja (sibling `..\Ninja\` folder); `build\native.cmd` uses them, so you rarely need the paths.
 - `winapp` CLI is installed (`winapp new --list` shows the WinUI templates; the template pack `Microsoft.WindowsAppSDK.WinUI.CSharp.Templates` 0.0.7-alpha is installed globally).
 
 ## Build, publish, run
 
-Native engine (x64, Release; builds PuTTY's libraries as an ExternalProject, so the first configure takes about 100 s). Use the full CMake path from the toolchain section as `$CMAKE`:
+Everything: `dotnet build PuTTY.slnx -c Release` builds the native engine and the managed projects, and stages `puttyengine.dll` next to `PuTTY.App` (from clean about 80 s; a no-change rebuild about 19 s). Native only: `build\native.cmd` (x64), which finds Visual Studio with `vswhere`, enters its developer environment and runs CMake with Ninja; output is `artifacts/native/x64/puttyengine.dll`. Nothing needs to be on PATH.
 
-```
-"$CMAKE" -S native --preset x64
-"$CMAKE" --build artifacts/native/x64 --config Release --parallel   # -> artifacts/native/x64/Release/puttyengine.dll
-```
-
-Managed: `dotnet build PuTTY.slnx -c Release`. The native build is **not** part of `dotnet build` yet (issue `putty-modern-5q2`); `PuTTY.App` copies `puttyengine.dll` next to its output only if it already exists.
+How it is wired: `src/PuTTY.Native` is a `Microsoft.Build.NoTargets` project (SDK version in `global.json`) whose only job is to run `build\native.cmd`; `PuTTY.App` references it with `ReferenceOutputAssembly=false` so it builds first, and a `StageNativeEngine` target adds the DLL as content (not a static `Exists()` item, which is false on a clean tree). `native/CMakeLists.txt` builds PuTTY itself as an ExternalProject and links its static libraries from one flat `lib/` folder. It requires a single-config generator (Ninja) and stops with an error under a multi-config one.
 
 NativeAOT publish: `dotnet publish src/PuTTY.App -c Release -r win-x64` writes `artifacts/publish/PuTTY.App/release_win-x64/PuTTY.App.exe` (about 11 MB plus the Windows App SDK files). A `PublishAot` project produces no `.exe` from plain `dotnet build`; to run a non-AOT build use `dotnet build src/PuTTY.App -c Release -p:PublishAot=false` (it overwrites the same output folder).
 
 Checking the UI: start the exe, then use `winapp ui search "placeholder" -a PuTTY.App` and `winapp ui screenshot -a PuTTY.App --output artifacts/spike/shot.png`, then close it. Check content, not just chrome: under NativeAOT the window titles can render while the content is missing.
 
-- Generator choice, measured on this machine for PuTTY's libraries from scratch: Ninja inside a VS developer environment (`vcvars64.bat`) configures in 25 s and builds in 51 s; the Visual Studio generator takes 102 s and 107 s. Decision: the native build moves to Ninja, with the planned MSBuild wrapper (`putty-modern-5q2`) supplying the developer environment. Until that lands, the `x64` preset still uses the VS generator.
+- Why Ninja, measured for PuTTY's libraries from scratch: Ninja inside a VS developer environment configures in 25 s and builds in 51 s; the Visual Studio generator took 102 s and 107 s.
 - Always build out-of-tree into `artifacts/` (git-ignored). Never build inside `external/putty`. A bash `cd` into it persists across tool calls in this environment, so use absolute paths.
 - `plink` in `external/putty/CMakeLists.txt` is the template for which libraries an SSH client links. `guiterminal` bundles root `terminal/`, `ldisc.c`, `config.c`, `dialog.c` **plus** the Windows GUI files (`windows/dialog.c`, `controls.c`, ...), so link order matters if our engine defines its own `dlg_*` functions. So far the engine links only `utils`; linking the SSH client libraries (to list the symbols a front end must supply) is issue `putty-modern-q59`.
 - Shell traps in Git Bash: it rewrites MSVC-style `/flags` into paths (`dumpbin /nologo` fails), so `export MSYS_NO_PATHCONV=1`; and `cmd | tail` hides a failing exit code (a native build once reported exit 0 while failing), so use `set -o pipefail` and check `${PIPESTATUS[0]}`.
@@ -59,6 +54,8 @@ Checking the UI: start the exe, then use `winapp ui search "placeholder" -a PuTT
 ```
 external/putty/        submodule (pristine)                                   exists
 native/                our C/C++ only: CMakeLists, CMakePresets, engine/      exists (C-ABI skeleton)
+build/native.cmd       builds the native engine (CMake + Ninja, VS dev env)    exists
+src/PuTTY.Native/      NoTargets project that runs build\native.cmd            exists
 src/PuTTY.Interop/     LibraryImport declarations, AOT-compatible             exists
 src/PuTTY.App/         WinUI 3 app, unpackaged, PublishAot, placeholder UI    exists
 tests/                                                                        not created (issue putty-modern-efy)
@@ -69,7 +66,7 @@ tests/                                                                        no
 - **Threading:** all sessions on the UI thread. A hidden message window handles `WM_NETEVENT` and timers (`winselgui_set_hwnd`, `windows/utils/gui-timing.c`), and `request_callback_notifications` feeds the dispatcher queue. Replace `handle-wait.c` with thread-pool waits.
 - **Terminal:** implement `TermWin` (24 methods) natively onto a swap chain, and `Seat` (about 29 methods; defaults in `stubs/null-seat.c`). Port key translation from `windows/window.c` (`TranslateKey`, lines 4150-4822).
 - **Settings UI:** a generic renderer over `config.c`'s control tree (about 210 controls, 32 pages, 37 `dlg_*` hooks) plus a presentation overlay. The sketch covers only 17 of the 32 pages (no Telnet, Rlogin, SUPDUP, Selection/Copy or the 11 SSH sub-pages).
-- **Build:** planned: the native build is driven from MSBuild through a NoTargets wrapper project (today it is a manual `cmake` step). Managed side, already in place: `PuTTY.slnx`, central package management (`Directory.Packages.props`), SDK pinned in `global.json`, `UseArtifactsOutput` into `artifacts/`.
+- **Build:** in place (see "Build, publish, run"): `PuTTY.slnx`, central package management (`Directory.Packages.props`), SDK pinned in `global.json`, `UseArtifactsOutput` into `artifacts/`, and the native build driven from MSBuild through `src/PuTTY.Native`.
 
 ## External references (outside this repo)
 

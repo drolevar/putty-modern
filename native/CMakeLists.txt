@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.24)
 project(puttyengine LANGUAGES C)
 
+# Single-config generators only (Ninja, see CMakePresets.json): PuTTY's libraries are
+# located by a flat path below, which a multi-config generator would split per config.
+if(CMAKE_CONFIGURATION_TYPES)
+  message(FATAL_ERROR "Use a single-config generator (Ninja). Run build/native.cmd.")
+endif()
+
 # PuTTY refuses to compile with NDEBUG defined (external/putty/defs.h): its
 # assertions are part of its security model. CMake's default Release flags add
 # /DNDEBUG, so strip it from every optimised configuration, as PuTTY's own
@@ -20,11 +26,11 @@ endforeach()
 # ---------------------------------------------------------------------------
 cmake_path(SET PUTTY_SOURCE_DIR NORMALIZE "${CMAKE_CURRENT_LIST_DIR}/../external/putty")
 set(PUTTY_BINARY_DIR "${CMAKE_BINARY_DIR}/putty")
+set(PUTTY_LIB_DIR "${PUTTY_BINARY_DIR}/lib")      # every PuTTY static library lands here
 
 # PuTTY is always built Release (/MD, assertions stay on: PuTTY strips NDEBUG
-# itself). The engine therefore always uses the /MD runtime too, even in its own
-# Debug configuration; mixing /MD and /MDd objects fails to link (LNK2038).
-set(PUTTY_CONFIG Release)
+# itself). The engine therefore always uses the /MD runtime too, even if it is
+# configured Debug; mixing /MD and /MDd objects fails to link (LNK2038).
 set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
 
 # PuTTY static libraries the engine links. Order matters for the linker; copy
@@ -35,21 +41,18 @@ include(ExternalProject)
 
 set(_putty_byproducts "")
 foreach(lib IN LISTS PUTTY_LIBS)
-  list(APPEND _putty_byproducts "${PUTTY_BINARY_DIR}/${PUTTY_CONFIG}/${lib}.lib")
+  list(APPEND _putty_byproducts "${PUTTY_LIB_DIR}/${lib}.lib")
 endforeach()
-
-set(_putty_generator_args CMAKE_GENERATOR "${CMAKE_GENERATOR}")
-if(CMAKE_GENERATOR_PLATFORM)
-  list(APPEND _putty_generator_args CMAKE_GENERATOR_PLATFORM "${CMAKE_GENERATOR_PLATFORM}")
-endif()
 
 ExternalProject_Add(putty_libs
   SOURCE_DIR "${PUTTY_SOURCE_DIR}"
   BINARY_DIR "${PUTTY_BINARY_DIR}"
-  ${_putty_generator_args}
+  CMAKE_GENERATOR "${CMAKE_GENERATOR}"
+  CMAKE_ARGS
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${PUTTY_LIB_DIR}
   INSTALL_COMMAND ""
-  BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR>
-                --config ${PUTTY_CONFIG} --parallel --target ${PUTTY_LIBS}
+  BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target ${PUTTY_LIBS}
   BUILD_BYPRODUCTS ${_putty_byproducts}
   BUILD_ALWAYS ON            # the inner build is incremental; this picks up submodule updates
   USES_TERMINAL_CONFIGURE ON
@@ -58,7 +61,7 @@ ExternalProject_Add(putty_libs
 foreach(lib IN LISTS PUTTY_LIBS)
   add_library(putty::${lib} STATIC IMPORTED GLOBAL)
   set_target_properties(putty::${lib} PROPERTIES
-    IMPORTED_LOCATION "${PUTTY_BINARY_DIR}/${PUTTY_CONFIG}/${lib}.lib")
+    IMPORTED_LOCATION "${PUTTY_LIB_DIR}/${lib}.lib")
 endforeach()
 
 # ---------------------------------------------------------------------------
