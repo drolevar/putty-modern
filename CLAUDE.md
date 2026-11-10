@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A WinUI 3 front end for PuTTY: a C# app (.NET 11, NativeAOT) on top of a native engine DLL built from the **unmodified** PuTTY core, which is the `external/putty` submodule ([drolevar/putty](https://github.com/drolevar/putty), a synchronized mirror of upstream, pinned at `29dd4b17`).
 
-**State (2026-11-10): early scaffolding.** Only the submodule (staged, not committed), `.gitignore` and `LICENSE` exist. There are no managed projects, native engine, tests or CI yet, so there are no build/lint/test commands beyond the native spike below. "Planned architecture" is design intent agreed in discussion, not code.
+**State (2026-11-10): the skeleton works end to end; no product features yet.** Built and verified: the native engine DLL (`pe_abi_version`, `pe_probe`), `PuTTY.Interop`, and a `PuTTY.App` window that hosts the docking layout from the sketch and calls the engine, in both a normal build and a NativeAOT publish. Not built: sessions, terminal, Seat/TermWin glue, settings UI, tests (so no test commands exist), CI, packaging. "Planned architecture" below is design intent, not code. Work is tracked in Beads (`bd ready`).
 
 ## Toolchain (verified on this machine)
 
@@ -15,17 +15,24 @@ A WinUI 3 front end for PuTTY: a C# app (.NET 11, NativeAOT) on top of a native 
 - `cmake` is not on PATH. Use VS's bundled CMake 4.3.1: `C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe` (Ninja is in the sibling `..\Ninja\` folder).
 - `winapp` CLI is installed (`winapp new --list` shows the WinUI templates; the template pack `Microsoft.WindowsAppSDK.WinUI.CSharp.Templates` 0.0.7-alpha is installed globally).
 
-## Building PuTTY's libraries (native spike)
+## Build, publish, run
+
+Native engine (x64, Release; builds PuTTY's libraries as an ExternalProject, so the first configure takes about 100 s). Use the full CMake path from the toolchain section as `$CMAKE`:
 
 ```
-cmake -S external/putty -B artifacts/spike/putty-x64 -G "Visual Studio 18 2026" -A x64
-cmake --build artifacts/spike/putty-x64 --config Release --parallel 8 --target utils crypto network settings eventloop sshclient otherbackends guiterminal
+"$CMAKE" -S native --preset x64
+"$CMAKE" --build artifacts/native/x64 --config Release --parallel   # -> artifacts/native/x64/Release/puttyengine.dll
 ```
 
-Both steps work (use the full CMake path above). Configure takes about 100 s because the VS generator turns every compile probe (AES-NI, SHA-NI, CLMUL, ARM) into an MSBuild run; Ninja is untested. The build had no compiler warnings or errors and leaves static libraries in `artifacts/spike/putty-x64/Release/` (the targets above plus `handle-io`, `sshcommon`, `logging`, `all-backends` and three `object_lib_HAVE_*` CPU-feature libraries). **Not done yet:** linking an engine DLL against them, which will show the full list of symbols a front end must supply.
+Managed: `dotnet build PuTTY.slnx -c Release`. The native build is **not** part of `dotnet build` yet (issue `putty-modern-5q2`); `PuTTY.App` copies `puttyengine.dll` next to its output only if it already exists.
+
+NativeAOT publish: `dotnet publish src/PuTTY.App -c Release -r win-x64` writes `artifacts/publish/PuTTY.App/release_win-x64/PuTTY.App.exe` (about 11 MB plus the Windows App SDK files). A `PublishAot` project produces no `.exe` from plain `dotnet build`; to run a non-AOT build use `dotnet build src/PuTTY.App -c Release -p:PublishAot=false` (it overwrites the same output folder).
+
+Checking the UI: start the exe, then use `winapp ui search "placeholder" -a PuTTY.App` and `winapp ui screenshot -a PuTTY.App --output artifacts/spike/shot.png`, then close it. Check content, not just chrome: under NativeAOT the window titles can render while the content is missing.
 
 - Always build out-of-tree into `artifacts/` (git-ignored). Never build inside `external/putty`. A bash `cd` into it persists across tool calls in this environment, so use absolute paths.
-- `plink` in `external/putty/CMakeLists.txt` is the template for which libraries an SSH client links. `guiterminal` bundles root `terminal/`, `ldisc.c`, `config.c`, `dialog.c` **plus** the Windows GUI files (`windows/dialog.c`, `controls.c`, ...), so link order matters if our engine defines its own `dlg_*` functions.
+- `plink` in `external/putty/CMakeLists.txt` is the template for which libraries an SSH client links. `guiterminal` bundles root `terminal/`, `ldisc.c`, `config.c`, `dialog.c` **plus** the Windows GUI files (`windows/dialog.c`, `controls.c`, ...), so link order matters if our engine defines its own `dlg_*` functions. So far the engine links only `utils`; linking the SSH client libraries (to list the symbols a front end must supply) is issue `putty-modern-q59`.
+- Shell traps in Git Bash: it rewrites MSVC-style `/flags` into paths (`dumpbin /nologo` fails), so `export MSYS_NO_PATHCONV=1`; and `cmd | tail` hides a failing exit code (a native build once reported exit 0 while failing), so use `set -o pipefail` and check `${PIPESTATUS[0]}`.
 
 ## Constraints that are not obvious
 
@@ -33,21 +40,27 @@ Both steps work (use the full CMake path above). Configure takes about 100 s bec
 2. **No C++ file can include PuTTY headers.** `ssh.h` uses `new` as a vtable member name (lines 757, 834, 890, 1097). Code that talks to PuTTY (Seat, TermWin, LogPolicy, key translation) must be C. C++ (the Direct2D/DirectWrite renderer) sits behind a C interface.
 3. **Keep `external/putty` pristine** so it can track upstream. Hooks the UI needs must live in our code or a fork branch. Example: the sketch's session inspector needs key-exchange, cipher and host-key fingerprint, and `putty.h` has no accessor for them.
 4. **The core is single-threaded with global state** (timer queue, callback queue, PRNG, handle-wait list). `windows/handle-wait.c` asserts at most 64 waitable handles, and `cleanup_exit` terminates the process. Both matter once many sessions share one process.
+5. **Never compile PuTTY code with `NDEBUG`** (`defs.h` errors out; assertions are part of its security model). `native/CMakeLists.txt` strips `/DNDEBUG` from the engine's flags. PuTTY's libraries are always built Release (`/MD`), so the engine always uses `/MD` too, even in its Debug configuration (mixing `/MD` and `/MDd` fails to link).
+6. **The engine must define the functions PuTTY expects from a front end.** Linking `utils` alone needed only `modalfatalbox` and `cleanup_exit` (both in `native/engine/frontend.c`); linking the SSH client libraries will need many more.
 
-## NativeAOT + WinUI 3 on .NET 11 (known issues as of 2026-11-10)
+## NativeAOT + WinUI 3 on .NET 11 (verified on 11.0.100-rc.3 with Windows App SDK 2.6.5)
 
-- Prefer an **unpackaged** app (`WindowsPackageType=None`, self-contained Windows App SDK, as DockingPanels' sample does) and package separately with `winapp package`.
-- WindowsAppSDK [#6897](https://github.com/microsoft/WindowsAppSDK/issues/6897): single-project MSIX plus `PublishAot` on the .NET 11 SDK produces no package. It is fixed but unreleased; the workaround is `UseOptimizedPublish=false`.
-- WindowsAppSDK [#6394](https://github.com/microsoft/WindowsAppSDK/issues/6394): `.xbf`/`.pri` missing from NativeAOT output, fixed in `Microsoft.Windows.SDK.BuildTools.MSIX` 1.7.260930100 or later. Pin it (latest stable is 1.7.261102100).
-- Latest stable Windows App SDK is 2.6.5. `Digi21.WinUI.Docking` 1.6.0 is built against 1.8.251106002 (`net8.0-windows10.0.19041.0`) and does not declare AOT compatibility. Whether it works on 2.x and under `PublishAot` is **untested**; verify before building on it.
+`PuTTY.App` is unpackaged (`WindowsPackageType=None`, self-contained Windows App SDK) and package-free by design; MSIX packaging is a separate step with `winapp package` (issue `putty-modern-apl`). The settings below live in `src/PuTTY.App/PuTTY.App.csproj` and each has a comment there; do not remove them without re-testing a NativeAOT publish **and** launching the result.
+
+- **`UseOptimizedPublish=false`** (WindowsAppSDK [#6897](https://github.com/microsoft/WindowsAppSDK/issues/6897)): on the .NET 11 SDK, `PublishAot` turns on optimized publish, and XAML compilation then fails with `WMC1007`. This hits unpackaged apps too, not only single-project MSIX. The issue is fixed but unreleased.
+- **`Microsoft.Windows.SDK.BuildTools.MSIX` pinned to 1.7.261102100** (WindowsAppSDK [#6394](https://github.com/microsoft/WindowsAppSDK/issues/6394), fixed from 1.7.260930100): Windows App SDK 2.6.5 pulls 1.7.251221100 transitively, so the pin relies on `CentralPackageTransitivePinningEnabled` in `Directory.Packages.props`. The publish output has no loose `.xbf` files (XAML is in `PuTTY.App.pri`) and the app starts fine.
+- **`AllowUnsafeBlocks`** is required (CsWinRT error CsWinRT1030) because the docking library's types implement generic WinRT interfaces.
+- **`Digi21.WinUI.Docking` 1.6.0** (built against Windows App SDK 1.8) restores and builds on 2.6.5 and net11 with 0 warnings, and the NativeAOT publish has 0 warnings. **But under NativeAOT the content of docked windows is silently dropped** (titles render, content does not) unless the whole assembly is rooted with `<TrimmerRootAssembly Include="Digi21.WinUI.Docking" />`. The regular build is unaffected. The root costs about 4.5 MB. Finding the exact trimmed members is issue `putty-modern-8nd`; the owner has approved forking the library with `gh` and fixing it on a branch if that confirms a library bug (tell them first).
+- WinUI template (`winapp new`) facts, if you scaffold another project: it targets net10 and is packaged by default, and it uses unpinned `Version="*"` references that must move into central package management.
 
 ## Planned architecture
 
 ```
-external/putty/   submodule (pristine)
-native/           our C/C++ only: CMakeLists, CMakePresets, engine/
-src/              PuTTY.Interop, PuTTY.App (WinUI 3, PublishAot), ViewModels
-tests/
+external/putty/        submodule (pristine)                                   exists
+native/                our C/C++ only: CMakeLists, CMakePresets, engine/      exists (C-ABI skeleton)
+src/PuTTY.Interop/     LibraryImport declarations, AOT-compatible             exists
+src/PuTTY.App/         WinUI 3 app, unpackaged, PublishAot, placeholder UI    exists
+tests/                                                                        not created (issue putty-modern-efy)
 ```
 
 - **Layers:** PuTTY core (C) -> engine DLL (C glue plus C++ renderer, flat C ABI) -> `PuTTY.Interop` -> WinUI 3 app. Interop uses `LibraryImport`, `[assembly: DisableRuntimeMarshalling]`, blittable signatures, `[UnmanagedCallersOnly]` callbacks and `SafeHandle`s. The engine starts as a DLL; static linking is a later option.
@@ -55,7 +68,7 @@ tests/
 - **Threading:** all sessions on the UI thread. A hidden message window handles `WM_NETEVENT` and timers (`winselgui_set_hwnd`, `windows/utils/gui-timing.c`), and `request_callback_notifications` feeds the dispatcher queue. Replace `handle-wait.c` with thread-pool waits.
 - **Terminal:** implement `TermWin` (24 methods) natively onto a swap chain, and `Seat` (about 29 methods; defaults in `stubs/null-seat.c`). Port key translation from `windows/window.c` (`TranslateKey`, lines 4150-4822).
 - **Settings UI:** a generic renderer over `config.c`'s control tree (about 210 controls, 32 pages, 37 `dlg_*` hooks) plus a presentation overlay. The sketch covers only 17 of the 32 pages (no Telnet, Rlogin, SUPDUP, Selection/Copy or the 11 SSH sub-pages).
-- **Build:** the native build is driven from MSBuild through a NoTargets wrapper project. Managed side: `.slnx`, central package management, SDK pinned in `global.json`, `UseArtifactsOutput`.
+- **Build:** planned: the native build is driven from MSBuild through a NoTargets wrapper project (today it is a manual `cmake` step). Managed side, already in place: `PuTTY.slnx`, central package management (`Directory.Packages.props`), SDK pinned in `global.json`, `UseArtifactsOutput` into `artifacts/`.
 
 ## External references (outside this repo)
 
