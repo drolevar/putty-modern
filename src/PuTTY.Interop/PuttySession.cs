@@ -12,6 +12,14 @@ public enum SessionProtocol
     Ssh = 3,
 }
 
+/// <summary>A setting that is either decided by the protocol or forced on or off.</summary>
+public enum LocalMode
+{
+    Auto = 0,
+    On = 1,
+    Off = 2,
+}
+
 /// <summary>Bytes received from the remote side.</summary>
 public sealed class SessionOutputEventArgs(byte[] data, bool isErrorStream) : EventArgs
 {
@@ -120,6 +128,53 @@ public sealed unsafe class PuttySession : IDisposable
         }
 
         handle = native;
+    }
+
+    /// <summary>
+    /// Gives the session a terminal emulator of the given size. From then on the remote side's
+    /// output goes to the emulator instead of the <see cref="Output"/> event, and keyboard input
+    /// (see <see cref="SetKeyboardTarget"/>) reaches the connection through PuTTY's key
+    /// translation. There is no renderer yet. Call it after <see cref="Start"/>.
+    /// </summary>
+    public void EnableTerminal(int columns, int rows)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (!started)
+        {
+            throw new InvalidOperationException("The session has not been started.");
+        }
+
+        PuttyEngine.Check(NativeMethods.SessionEnableTerminal(handle, columns, rows), nameof(EnableTerminal));
+    }
+
+    /// <summary>
+    /// Local echo and local line editing, the two settings that decide whether typing is buffered
+    /// until Enter. <see cref="LocalMode.Auto"/> lets the protocol decide: on for Raw, off for SSH.
+    /// The session needs <see cref="EnableTerminal"/> first.
+    /// </summary>
+    public void SetLocalEchoAndEditing(LocalMode echo, LocalMode editing)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(
+            NativeMethods.SessionSetLocalEchoEdit(handle, (int)echo, (int)editing), nameof(SetLocalEchoAndEditing));
+    }
+
+    /// <summary>
+    /// Says which session's terminal has keyboard focus, or none (<c>null</c>). While one does,
+    /// a message hook on the engine thread turns keyboard messages into terminal input exactly as
+    /// PuTTY's own window would; with none it does nothing. Call it from the focus events of the
+    /// terminal view, on the engine thread. The session needs <see cref="EnableTerminal"/> first.
+    /// </summary>
+    public static void SetKeyboardTarget(PuttySession? session)
+    {
+        nint native = 0;
+        if (session is not null)
+        {
+            ObjectDisposedException.ThrowIf(session.disposed, session);
+            native = session.handle;
+        }
+
+        PuttyEngine.Check(NativeMethods.SetKeyTarget(native), nameof(SetKeyboardTarget));
     }
 
     /// <summary>True while the connection is up.</summary>

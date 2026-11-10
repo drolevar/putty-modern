@@ -6,6 +6,7 @@
   <PropertyGroup>
     <TargetFramework>$(NetVersion)</TargetFramework>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

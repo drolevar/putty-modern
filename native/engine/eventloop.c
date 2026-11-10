@@ -154,6 +154,7 @@ PE_API int32_t pe_shutdown(void)
     for (int i = 0; i < PE_MAX_DRAIN && run_toplevel_callbacks(); i++)
         ;
 
+    pe_keys_reset();
     winselgui_clear_hwnd();
     DestroyWindow(pe.hwnd);
     pe_warnings_reset();

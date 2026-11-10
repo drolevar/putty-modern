@@ -89,10 +89,11 @@ set(PUTTY_CORE_SOURCES
   be_list.c                        # how a program picks its backends (SSH, serial, the others)
   terminal/terminal.c terminal/bidi.c terminal/lineedit.c   # the emulator
   ldisc.c                          # line discipline
+  windows/unicode.c                # init_ucs (character sets), check_compose, the keyboard-layout helpers
   stubs/no-printing.c              # PuTTY's own stub: printing is out of scope
   windows/no-jump-list.c)          # PuTTY's own stub: no taskbar jump list yet
 
-set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/core_refs.c)
+set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/core_refs.c)
 
 if(PUTTY_ENGINE_FULL)
   # The config-box description. Needs the dlg_* functions and show_ca_config_box (slice 4).

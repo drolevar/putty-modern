@@ -113,6 +113,34 @@ PE_API int32_t pe_session_is_connected(pe_session *session);
 /* Closes the connection and frees the session. The handle is invalid afterwards. */
 PE_API int32_t pe_session_close(pe_session *session);
 
+/*
+ * Gives the session a terminal emulator with the given size in character cells. From then on
+ * the remote side's output goes to the emulator instead of the host's `output` callback, and
+ * keyboard input (see pe_set_key_target) goes through PuTTY's key translation and line
+ * discipline to the connection. There is no renderer yet: the emulator has a null TermWin.
+ * PE_ERR_STATE if the session is closed or already has a terminal.
+ */
+PE_API int32_t pe_session_enable_terminal(pe_session *session, int32_t columns, int32_t rows);
+
+/*
+ * Local echo and local line editing, the two Terminal settings that decide whether the line
+ * discipline buffers typing until Enter. Each is PE_LOCAL_AUTO (the protocol decides: on for
+ * Raw, off for SSH and, once negotiated, Telnet), PE_LOCAL_ON or PE_LOCAL_OFF. The session needs
+ * a terminal.
+ */
+#define PE_LOCAL_AUTO 0
+#define PE_LOCAL_ON   1
+#define PE_LOCAL_OFF  2
+PE_API int32_t pe_session_set_local_echo_edit(pe_session *session, int32_t echo, int32_t edit);
+
+/*
+ * Names the session whose terminal has keyboard focus, or NULL if none does. While one does,
+ * a message hook on the engine thread takes keyboard messages and turns them into terminal
+ * input exactly as PuTTY's own window would; with none it does nothing. The session must have
+ * a terminal. The target is cleared when the session closes and by pe_shutdown.
+ */
+PE_API int32_t pe_set_key_target(pe_session *session);
+
 /* ----- Warnings that belong to no session ------------------------------------------ */
 
 /* What PuTTY's core reports through its process-level callbacks. */

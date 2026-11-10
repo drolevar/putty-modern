@@ -44,6 +44,15 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_session_close")]
     internal static partial int SessionClose(nint session);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_enable_terminal")]
+    internal static partial int SessionEnableTerminal(nint session, int columns, int rows);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_set_local_echo_edit")]
+    internal static partial int SessionSetLocalEchoEdit(nint session, int echo, int edit);
+
+    [LibraryImport(Library, EntryPoint = "pe_set_key_target")]
+    internal static partial int SetKeyTarget(nint session);
+
     [LibraryImport(Library, EntryPoint = "pe_set_warning_handler")]
     internal static unsafe partial int SetWarningHandler(delegate* unmanaged<nint, int, byte*, void> handler, nint user);
 
