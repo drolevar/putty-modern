@@ -1,0 +1,8 @@
+<linker>
+  <!-- See the comment in PuTTY.App.csproj. DockSite alone is enough; DockingWindowContainer,
+       ToolWindowContainer and DocumentContainer each fix it too. Preserving only individual
+       methods of those types, or the window types, DocumentHost or SplitContainer, does not. -->
+  <assembly fullname="Digi21.WinUI.Docking">
+    <type fullname="Digi21.WinUI.Docking.DockSite" preserve="all" />
+  </assembly>
+</linker>
