@@ -1,0 +1,24 @@
+<Project>
+
+  <!-- C# language settings shared by every managed project -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- All managed output goes to artifacts/ (bin, obj, publish, package). The native
+       build writes to artifacts/native and artifacts/spike; all of it is git-ignored. -->
+  <PropertyGroup>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
+  </PropertyGroup>
+
+  <!-- Target frameworks defined once, referenced from the projects -->
+  <PropertyGroup>
+    <NetVersion>net11.0</NetVersion>
+    <WindowsTfm>net11.0-windows10.0.26100.0</WindowsTfm>
+  </PropertyGroup>
+
+</Project>

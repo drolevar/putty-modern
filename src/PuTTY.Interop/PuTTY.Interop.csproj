@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(NetVersion)</TargetFramework>
+    <RootNamespace>PuTTY.Interop</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Implies IsTrimmable and enables the trim, AOT and single-file analyzers;
+         this library must stay NativeAOT-safe (see the aot-trimming skill). -->
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
