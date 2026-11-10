@@ -1,0 +1,3 @@
+# cmd.exe can miss goto/call labels in LF-only batch files, so these must be CRLF
+# in the working tree regardless of core.autocrlf.
+*.cmd text eol=crlf
