@@ -10,9 +10,18 @@
       "architecture": { "value": "x64", "strategy": "external" },
       "binaryDir": "${sourceDir}/../artifacts/native/x64",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "x64-full",
+      "displayName": "x64 with PuTTY's whole SSH client linked (expected to fail to link)",
+      "description": "Lists the front-end functions still to be implemented; see docs/front-end-contract.md.",
+      "inherits": "x64",
+      "binaryDir": "${sourceDir}/../artifacts/native/x64-full",
+      "cacheVariables": { "PUTTY_ENGINE_FULL": "ON" }
     }
   ],
   "buildPresets": [
-    { "name": "x64", "configurePreset": "x64" }
+    { "name": "x64", "configurePreset": "x64" },
+    { "name": "x64-full", "configurePreset": "x64-full" }
   ]
 }

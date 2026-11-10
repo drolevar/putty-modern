@@ -33,9 +33,25 @@ set(PUTTY_LIB_DIR "${PUTTY_BINARY_DIR}/lib")      # every PuTTY static library l
 # configured Debug; mixing /MD and /MDd objects fails to link (LNK2038).
 set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
 
-# PuTTY static libraries the engine links. Order matters for the linker; copy
-# the order from the plink target in external/putty/CMakeLists.txt as this grows.
-set(PUTTY_LIBS utils)
+option(PUTTY_ENGINE_FULL
+  "Link PuTTY's SSH client, backends and terminal libraries. EXPECTED TO FAIL TO LINK until the front-end contract is implemented: the unresolved externals are the to-do list (see docs/front-end-contract.md)."
+  OFF)
+
+# PuTTY static libraries the engine links (the plink target in
+# external/putty/CMakeLists.txt shows what an SSH client needs). guimisc comes first: it
+# supplies the socket event handling for a message-loop GUI (WSAAsyncSelect), and the
+# linker takes the first definition it meets, so it wins over eventloop's console-style
+# version of the same functions.
+#
+# PuTTY's guiterminal library is deliberately NOT used: it bundles the Win32 dialog code
+# (windows/dialog.c, controls.c, jump-list.c, ...) alongside the portable terminal code,
+# and the linker would silently satisfy the dlg_* functions from it. The portable files
+# are compiled directly instead (PUTTY_TERMINAL_SOURCES below).
+if(PUTTY_ENGINE_FULL)
+  set(PUTTY_LIBS guimisc eventloop sshclient otherbackends settings network crypto utils)
+else()
+  set(PUTTY_LIBS utils)
+endif()
 
 include(ExternalProject)
 
@@ -71,9 +87,20 @@ endforeach()
 # member name), so everything that touches PuTTY types is C. C++ (the future
 # Direct2D/DirectWrite renderer) must sit behind a C interface.
 # ---------------------------------------------------------------------------
-add_library(puttyengine SHARED
-  engine/engine.c
-  engine/frontend.c)
+set(ENGINE_SOURCES engine/engine.c engine/frontend.c)
+if(PUTTY_ENGINE_FULL)
+  # be_list.c is how every PuTTY program picks its backends: SSH, serial and the others.
+  set(PUTTY_TERMINAL_SOURCES
+    terminal/terminal.c terminal/bidi.c terminal/lineedit.c   # the emulator
+    ldisc.c                                                   # line discipline
+    config.c dialog.c)                                        # config-box description (platform-neutral)
+  list(TRANSFORM PUTTY_TERMINAL_SOURCES PREPEND "${PUTTY_SOURCE_DIR}/")
+  list(APPEND ENGINE_SOURCES engine/core_refs.c "${PUTTY_SOURCE_DIR}/be_list.c" ${PUTTY_TERMINAL_SOURCES})
+  set_source_files_properties("${PUTTY_SOURCE_DIR}/be_list.c" PROPERTIES
+    COMPILE_DEFINITIONS "SSH=1;SERIAL=1;OTHERBACKENDS=1;APPNAME=PuTTY")
+endif()
+
+add_library(puttyengine SHARED ${ENGINE_SOURCES})
 
 add_dependencies(puttyengine putty_libs)
 
@@ -93,7 +120,8 @@ target_compile_definitions(puttyengine PRIVATE
   _WINSOCK_DEPRECATED_NO_WARNINGS
   _ARM_WINAPI_PARTITION_DESKTOP_SDK_AVAILABLE)
 
+list(TRANSFORM PUTTY_LIBS PREPEND "putty::" OUTPUT_VARIABLE _putty_link_targets)
 target_link_libraries(puttyengine PRIVATE
-  putty::utils
+  ${_putty_link_targets}
   # PuTTY's platform_libraries on Windows
   advapi32 comdlg32 gdi32 imm32 ole32 shell32 user32 ws2_32 kernel32)

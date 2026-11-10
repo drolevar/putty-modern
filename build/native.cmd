@@ -4,15 +4,19 @@ rem Builds the native engine (puttyengine.dll) with CMake + Ninja inside a Visua
 rem developer environment. Used by src\PuTTY.Native (so dotnet build covers native too) and
 rem runnable by hand:
 rem
-rem   build\native.cmd [x64]
-rem
-rem Output: artifacts\native\<arch>\puttyengine.dll
+rem   build\native.cmd [x64]          the engine (output: artifacts\native\x64\puttyengine.dll)
+rem   build\native.cmd x64 full       link PuTTY's whole SSH client; EXPECTED TO FAIL, and the
+rem                                   unresolved externals it prints are the to-do list
+rem                                   (see docs\front-end-contract.md)
 rem
 rem Visual Studio supplies cl.exe, CMake and Ninja; nothing needs to be on PATH.
 
 set "ARCH=%~1"
 if "%ARCH%"=="" set "ARCH=x64"
 if /i not "%ARCH%"=="x64" goto :unsupported
+
+set "PRESET=%ARCH%"
+if /i "%~2"=="full" set "PRESET=%ARCH%-full"
 
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not exist "%VSWHERE%" goto :novs
@@ -26,9 +30,9 @@ set "PATH=%CMAKEDIR%\CMake\bin;%CMAKEDIR%\Ninja;%PATH%"
 
 cd /d "%~dp0..\native"
 if errorlevel 1 exit /b 1
-cmake --preset %ARCH%
+cmake --preset %PRESET%
 if errorlevel 1 exit /b 1
-cmake --build --preset %ARCH%
+cmake --build --preset %PRESET%
 exit /b %errorlevel%
 
 :unsupported
