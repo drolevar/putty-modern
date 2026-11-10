@@ -32,6 +32,9 @@ public sealed partial class MainWindow : Window
         hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 760));
 
+        if (Has("--probe-partial")) RootGrid.Children.Add(new ProbePartial());
+        if (Has("--probe-plain")) RootGrid.Children.Add(new ProbePlain());
+
         Terminal.Height = 120;
         Grid.SetRow(Terminal, 1);
         RootGrid.Children.Add(Terminal);

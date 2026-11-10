@@ -101,18 +101,18 @@ swallowing leaves XAML with no key events. `[UnmanagedCallersOnly]` function poi
 procedures work under NativeAOT, and so do the Win32 imports (`LibraryImport`).
 
 One thing did **not** work and cost most of the AOT time: **a C# subclass of a WinUI control
-crashed the AOT build at the first frame** with a stowed exception, surfaced as
-`COMException 0x80040111 (ClassFactory cannot supply requested class)` naming
-`Windows.ApplicationModel.LimitedAccessFeatures`. It happened with a code-only
-`class TerminalKeyControl : UserControl` with no event handlers at all, whether it was declared in
-XAML markup or created in code, with or without rooting the whole assembly, and never in the JIT
-build. Bisecting by removing elements one at a time (hooks, TextBox, buttons, log, then the control)
-isolated the control; replacing the subclass with a plain `UserControl` that has handlers attached
-fixed it, with no other change. The message is misleading (it names a class that has nothing to do
-with the control). This may be related to the open question of why docked-window content is lost
-under NativeAOT (Beads `putty-modern-sqm`: the docking library is made of derived controls); not
-investigated further here. For the terminal view it means: do not assume a C# subclass of a control
-is safe under NativeAOT, test it early.
+that is not marked `partial` crashed the AOT build at the first frame** with a stowed exception,
+surfaced as `COMException 0x80040111 (ClassFactory cannot supply requested class)` naming
+`Windows.ApplicationModel.LimitedAccessFeatures`, a class that has nothing to do with it. It happened
+with a code-only `class TerminalKeyControl : UserControl` with no event handlers at all, whether it
+was declared in XAML markup or created in code, and never in the JIT build. Bisecting by removing
+elements one at a time (hooks, TextBox, buttons, log, then the control) isolated the control. The
+cause, found afterwards: the CsWinRT source generator warns about it
+(`CsWinRT1028: Class ... implements WinRT interfaces but it or a parent type isn't marked partial`),
+and the build summary I was reading had been filtered so that warning never showed. Marking the same
+class `partial` makes it work (`spikes/keyboard-ime/SubclassProbe.cs` holds both versions, run with
+`--probe-partial` and `--probe-plain`). The lesson is general: **read every CsWinRT warning in a
+NativeAOT publish** and mark every control subclass `partial`.
 
 ## IME: not verified
 

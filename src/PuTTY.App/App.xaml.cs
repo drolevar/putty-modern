@@ -11,6 +11,7 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        AotTypeAnchors.Touch();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
