@@ -90,7 +90,7 @@ public static class PuttyEngine
         return ms <= 0 ? 0 : ms >= uint.MaxValue ? uint.MaxValue : (uint)ms;
     }
 
-    private static void Check(int result, string operation)
+    internal static void Check(int result, string operation)
     {
         if (result >= NativeMethods.Ok)
         {
