@@ -99,6 +99,25 @@ static int32_t dispatch_pending_messages(void)
     return count;
 }
 
+/*
+ * PuTTY's timer queue (utils/timing.c) is process-global and its only wake-up is the SetTimer on
+ * the hidden window that setup_gui_timing() creates, which dies with the thread that created it.
+ * A queue that still holds a timer from an earlier engine (every session's timers, up to the
+ * cursor blink, outlive the session until run_timers drops them) is never re-announced to the new
+ * window: schedule_timer() calls timer_change_notify() only when the new timer becomes the FIRST
+ * one, so while a stale timer sits in front, no timer of the new engine ever fires. Visible as a
+ * terminal that stopped repainting after its first update (the update cooldown is a timer), in
+ * about half the runs of a test that restarts the engine. A host that starts one engine for the
+ * life of the process would not see it, but the engine must not depend on that.
+ * Running the queue once now deletes expired work and arms the new window for whatever remains.
+ */
+static void rearm_timers(void)
+{
+    unsigned long next;
+    if (run_timers(GETTICKCOUNT(), &next))
+        timer_change_notify(next);
+}
+
 PE_API int32_t pe_init(void)
 {
     if (pe.initialised)
@@ -127,6 +146,7 @@ PE_API int32_t pe_init(void)
     /* The same start-up sequence as windows/window.c. */
     sk_init();
     setup_gui_timing();
+    rearm_timers();
     winselgui_set_hwnd(hwnd);
     request_callback_notifications(notify_callbacks_pending, NULL);
 

@@ -68,6 +68,18 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_diag_session_read_pixel")]
     internal static partial int DiagSessionReadPixel(nint session, int x, int y, out uint rgb);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_mouse")]
+    internal static partial int SessionMouse(nint session, int kind, int button, int xPx, int yPx, int modifiers, uint timeMs);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_wheel")]
+    internal static partial int SessionWheel(nint session, int delta, int horizontal, int xPx, int yPx, int modifiers);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_scroll")]
+    internal static partial int SessionScroll(nint session, int mode, int amount);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_paste")]
+    internal static unsafe partial int SessionPaste(nint session, char* text, int units);
+
     [LibraryImport(Library, EntryPoint = "pe_session_set_local_echo_edit")]
     internal static partial int SessionSetLocalEchoEdit(nint session, int echo, int edit);
 
@@ -114,6 +126,8 @@ internal unsafe struct NativeTerminalEvents
     public delegate* unmanaged<nint, byte*, void> Title;               // user, utf8 title
     public delegate* unmanaged<nint, void> Bell;                       // user
     public delegate* unmanaged<nint, int, int, int, void> Scrollbar;   // user, total, start, page
+    public delegate* unmanaged<nint, char*, int, void> ClipboardWrite; // user, utf16 text, units
+    public delegate* unmanaged<nint, void> ClipboardRequestPaste;      // user
 }
 
 /// <summary>Mirrors <c>pe_terminal_geometry</c>.</summary>

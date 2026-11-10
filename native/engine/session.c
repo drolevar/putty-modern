@@ -41,6 +41,13 @@ struct pe_session {
     int32_t view_width, view_height;    /* pixels of the attached view */
     bool repaint_pending;
 
+    /* Mouse state: click counting for word and line selection, the buttons held, wheel remainder. */
+    Mouse_Button last_button;
+    Mouse_Action last_action;
+    uint32_t last_click_time;
+    unsigned buttons_down;              /* bit per PE_BUTTON_* */
+    int wheel_accumulator;
+
     pe_session_events events;   /* a copy, so the caller's may live on the stack */
     void *user;
 
@@ -461,6 +468,20 @@ void pe_session_notify_scrollbar(void *owner, int total, int start, int page)
         TERMINAL_EVENT(s, scrollbar, total, start, page);
 }
 
+void pe_session_notify_clipboard_write(void *owner, const wchar_t *text, int units)
+{
+    pe_session *s = (pe_session *)owner;
+    if (session_is_live(s))
+        TERMINAL_EVENT(s, clipboard_write, text, (int32_t)units);
+}
+
+void pe_session_notify_paste_request(void *owner)
+{
+    pe_session *s = (pe_session *)owner;
+    if (session_is_live(s))
+        TERMINAL_EVENT_NOARGS(s, clipboard_request_paste);
+}
+
 static void repaint_callback(void *ctx)
 {
     pe_session *s = (pe_session *)ctx;
@@ -616,6 +637,165 @@ PE_API int32_t pe_diag_session_read_pixel(pe_session *s, int32_t x, int32_t y, u
     if (!view_usable(s) || !rgb)
         return PE_ERR_STATE;
     return pe_render_read_pixel(s->termwin.renderer, x, y, rgb) ? PE_OK : PE_ERR_FAILED;
+}
+
+/* ----- Mouse, scrolling, pasting (the logic of window.c's WM_*BUTTON*, WM_MOUSEMOVE and wheel handling) ---- */
+
+static Mouse_Button translate_button(pe_session *s, Mouse_Button button)
+{
+    if (button == MBT_LEFT)
+        return MBT_SELECT;
+    bool xterm = conf_get_int(s->conf, CONF_mouse_is_xterm) == MOUSE_XTERM;
+    if (button == MBT_MIDDLE)
+        return xterm ? MBT_PASTE : MBT_EXTEND;
+    if (button == MBT_RIGHT)
+        return xterm ? MBT_EXTEND : MBT_PASTE;
+    return MBT_NOTHING;
+}
+
+/* Pixel to character cell, rounding down also for negative positions (a drag outside the view). */
+static int cell_of(int pixel, int cell)
+{
+    return (pixel < 0 ? pixel - cell + 1 : pixel) / cell;
+}
+
+static void mouse_click(pe_session *s, Mouse_Button b, int col, int row, bool shift, bool ctrl, bool alt,
+                        uint32_t time_ms)
+{
+    if (s->termwin.raw_mouse_mode && !(shift && conf_get_bool(s->conf, CONF_mouse_override))) {
+        s->last_button = MBT_NOTHING;
+        term_mouse(s->term, b, translate_button(s, b), MA_CLICK, col, row, shift, ctrl, alt);
+        return;
+    }
+
+    if (s->last_button == b && (uint32_t)(time_ms - s->last_click_time) < GetDoubleClickTime()) {
+        s->last_action = (s->last_action == MA_CLICK ? MA_2CLK :
+                          s->last_action == MA_2CLK ? MA_3CLK :
+                          s->last_action == MA_3CLK ? MA_CLICK : MA_NOTHING);
+    } else {
+        s->last_button = b;
+        s->last_action = MA_CLICK;
+    }
+    if (s->last_action != MA_NOTHING)
+        term_mouse(s->term, b, translate_button(s, b), s->last_action, col, row, shift, ctrl, alt);
+    s->last_click_time = time_ms;
+}
+
+PE_API int32_t pe_session_mouse(pe_session *s, int32_t kind, int32_t button, int32_t x_px, int32_t y_px,
+                                int32_t modifiers, uint32_t time_ms)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!view_usable(s))
+        return PE_ERR_STATE;
+    if (button < PE_BUTTON_LEFT || button > PE_BUTTON_RIGHT)
+        return PE_ERR_FAILED;
+
+    int32_t cw = 0, ch = 0;
+    pe_render_cell_size(s->termwin.renderer, &cw, &ch);
+    if (cw < 1 || ch < 1)
+        return PE_ERR_STATE;
+    int col = cell_of(x_px, cw);
+    int row = cell_of(y_px, ch);
+    bool shift = (modifiers & PE_MOD_SHIFT) != 0;
+    bool ctrl = (modifiers & PE_MOD_CTRL) != 0;
+    bool alt = (modifiers & PE_MOD_ALT) != 0;
+    Mouse_Button b = button == PE_BUTTON_LEFT ? MBT_LEFT : button == PE_BUTTON_MIDDLE ? MBT_MIDDLE : MBT_RIGHT;
+
+    switch (kind) {
+      case PE_MOUSE_DOWN:
+        /* window.c opens its context menu here for a right click with Ctrl, or in Windows mouse
+         * style; the host decides about menus, so such a click does nothing in the engine. */
+        if (b == MBT_RIGHT && (ctrl || conf_get_int(s->conf, CONF_mouse_is_xterm) == MOUSE_WINDOWS)) {
+            term_cancel_selection_drag(s->term);
+            return PE_OK;
+        }
+        s->buttons_down |= 1u << button;
+        mouse_click(s, b, col, row, shift, ctrl, alt, time_ms);
+        return PE_OK;
+      case PE_MOUSE_UP:
+        s->buttons_down &= ~(1u << button);
+        term_mouse(s->term, b, translate_button(s, b), MA_RELEASE, col, row, shift, ctrl, alt);
+        return PE_OK;
+      case PE_MOUSE_MOVE:
+        if (s->buttons_down) {
+            Mouse_Button drag = (s->buttons_down & (1u << PE_BUTTON_LEFT)) ? MBT_LEFT :
+                                (s->buttons_down & (1u << PE_BUTTON_MIDDLE)) ? MBT_MIDDLE : MBT_RIGHT;
+            term_mouse(s->term, drag, translate_button(s, drag), MA_DRAG, col, row, shift, ctrl, alt);
+        } else {
+            term_mouse(s->term, MBT_NOTHING, MBT_NOTHING, MA_MOVE, col, row, false, false, false);
+        }
+        return PE_OK;
+    }
+    return PE_ERR_FAILED;
+}
+
+PE_API int32_t pe_session_wheel(pe_session *s, int32_t delta, int32_t horizontal, int32_t x_px, int32_t y_px,
+                                int32_t modifiers)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!view_usable(s))
+        return PE_ERR_STATE;
+
+    int32_t cw = 0, ch = 0;
+    pe_render_cell_size(s->termwin.renderer, &cw, &ch);
+    if (cw < 1 || ch < 1)
+        return PE_ERR_STATE;
+    bool shift = (modifiers & PE_MOD_SHIFT) != 0;
+    bool ctrl = (modifiers & PE_MOD_CTRL) != 0;
+    bool alt = (modifiers & PE_MOD_ALT) != 0;
+
+    s->wheel_accumulator += delta;
+    while (abs(s->wheel_accumulator) >= WHEEL_DELTA) {
+        Mouse_Button b;
+        if (s->wheel_accumulator > 0) {
+            b = horizontal ? MBT_WHEEL_RIGHT : MBT_WHEEL_UP;
+            s->wheel_accumulator -= WHEEL_DELTA;
+        } else {
+            b = horizontal ? MBT_WHEEL_LEFT : MBT_WHEEL_DOWN;
+            s->wheel_accumulator += WHEEL_DELTA;
+        }
+
+        if (s->termwin.raw_mouse_mode && !(conf_get_bool(s->conf, CONF_mouse_override) && shift)) {
+            /* a mouse-down followed by a mouse-up, as window.c sends it */
+            term_mouse(s->term, b, translate_button(s, b), MA_CLICK, cell_of(x_px, cw), cell_of(y_px, ch),
+                       shift, ctrl, alt);
+        } else if (!horizontal) {
+            term_scroll(s->term, 0, b == MBT_WHEEL_UP ? -s->term->rows / 2 : s->term->rows / 2);
+        }
+    }
+    return PE_OK;
+}
+
+PE_API int32_t pe_session_scroll(pe_session *s, int32_t mode, int32_t amount)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || s->pending_close || !s->term)
+        return PE_ERR_STATE;
+    switch (mode) {
+      case PE_SCROLL_LINES:    term_scroll(s->term, 0, amount); return PE_OK;
+      case PE_SCROLL_ABSOLUTE: term_scroll(s->term, 1, amount); return PE_OK;
+      case PE_SCROLL_TOP:      term_scroll(s->term, 1, 0); return PE_OK;
+      case PE_SCROLL_BOTTOM:   term_scroll(s->term, -1, 0); return PE_OK;
+    }
+    return PE_ERR_FAILED;
+}
+
+PE_API int32_t pe_session_paste(pe_session *s, const wchar_t *text, int32_t units)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || s->pending_close || !s->term || !text || units < 0)
+        return PE_ERR_STATE;
+    if (units > 0)
+        term_do_paste(s->term, text, (size_t)units);
+    return PE_OK;
 }
 
 pe_keyctx *pe_session_keyctx(pe_session *session)

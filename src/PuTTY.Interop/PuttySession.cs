@@ -28,6 +28,51 @@ public sealed class SessionScrollbarEventArgs(int total, int start, int page) : 
     public int Page { get; } = page;
 }
 
+/// <summary>The terminal selected text that should go onto the system clipboard.</summary>
+public sealed class SessionClipboardEventArgs(string text) : EventArgs
+{
+    public string Text { get; } = text;
+}
+
+/// <summary>What a pointer did over the terminal view.</summary>
+public enum MouseAction
+{
+    Down = 0,
+    Up = 1,
+    Move = 2,
+}
+
+public enum MouseButton
+{
+    Left = 0,
+    Middle = 1,
+    Right = 2,
+}
+
+/// <summary>Modifier keys held during a pointer event.</summary>
+[Flags]
+public enum TerminalModifiers
+{
+    None = 0,
+    Shift = 1,
+    Control = 2,
+    Alt = 4,
+}
+
+/// <summary>How <see cref="PuttySession.Scroll"/> moves the scrollback.</summary>
+public enum ScrollMode
+{
+    /// <summary>By a number of lines from where it is now; negative goes up.</summary>
+    Lines = 0,
+
+    /// <summary>To a line counted from the top of the scrollback.</summary>
+    Absolute = 1,
+
+    Top = 2,
+
+    Bottom = 3,
+}
+
 /// <summary>The terminal's size in character cells and the size of one cell in pixels (0 until a view is attached).</summary>
 public readonly record struct TerminalGeometry(int Columns, int Rows, int CellWidth, int CellHeight);
 
@@ -113,6 +158,15 @@ public sealed unsafe class PuttySession : IDisposable
     /// <summary>The terminal's title changed. Raised on the engine thread.</summary>
     public event EventHandler<SessionTitleEventArgs>? TitleChanged;
 
+    /// <summary>Text was selected and belongs on the system clipboard. The host owns the clipboard. Raised on the engine thread.</summary>
+    public event EventHandler<SessionClipboardEventArgs>? ClipboardWrite;
+
+    /// <summary>
+    /// The terminal wants to paste (a paste key or mouse button). Read the clipboard, which may be
+    /// asynchronous, and answer with <see cref="Paste"/>. Raised on the engine thread.
+    /// </summary>
+    public event EventHandler? ClipboardPasteRequested;
+
     /// <summary>The terminal rang its bell. Raised on the engine thread.</summary>
     public event EventHandler? Bell;
 
@@ -161,6 +215,8 @@ public sealed unsafe class PuttySession : IDisposable
         terminal.Title = &OnTitle;
         terminal.Bell = &OnBell;
         terminal.Scrollbar = &OnScrollbar;
+        terminal.ClipboardWrite = &OnClipboardWrite;
+        terminal.ClipboardRequestPaste = &OnClipboardRequestPaste;
         PuttyEngine.Check(NativeMethods.SessionSetTerminalEvents(handle, &terminal), nameof(Start));
     }
 
@@ -218,6 +274,44 @@ public sealed unsafe class PuttySession : IDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         PuttyEngine.Check(NativeMethods.SessionSetFont(handle, fontFamily, fontSizePixels), nameof(SetFont));
+    }
+
+    /// <summary>
+    /// A pointer event over the terminal view, in view pixels (physical, as for <see cref="AttachPanelView"/>).
+    /// <paramref name="timestampMilliseconds"/> is the event's time on any steady clock; it is how a
+    /// double or triple click is told from slow clicks. Move events with a button down are drags.
+    /// </summary>
+    public void Mouse(MouseAction action, MouseButton button, int x, int y, TerminalModifiers modifiers, uint timestampMilliseconds)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(
+            NativeMethods.SessionMouse(handle, (int)action, (int)button, x, y, (int)modifiers, timestampMilliseconds),
+            nameof(Mouse));
+    }
+
+    /// <summary>A wheel step in units of 120 per notch, positive up (right if <paramref name="horizontal"/>).</summary>
+    public void Wheel(int delta, bool horizontal, int x, int y, TerminalModifiers modifiers)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(NativeMethods.SessionWheel(handle, delta, horizontal ? 1 : 0, x, y, (int)modifiers), nameof(Wheel));
+    }
+
+    /// <summary>Moves the scrollback, from the host's scrollbar. <see cref="ScrollbarChanged"/> reports the result.</summary>
+    public void Scroll(ScrollMode mode, int amount = 0)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(NativeMethods.SessionScroll(handle, (int)mode, amount), nameof(Scroll));
+    }
+
+    /// <summary>Pastes text into the terminal (answers <see cref="ClipboardPasteRequested"/>).</summary>
+    public unsafe void Paste(string text)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        ArgumentNullException.ThrowIfNull(text);
+        fixed (char* p = text)
+        {
+            PuttyEngine.Check(NativeMethods.SessionPaste(handle, p, text.Length), nameof(Paste));
+        }
     }
 
     /// <summary>The terminal's size in cells and the cell size in pixels.</summary>
@@ -403,6 +497,38 @@ public sealed unsafe class PuttySession : IDisposable
         catch (Exception ex)
         {
             Debug.WriteLine($"PuttySession.TitleChanged handler threw: {ex}");
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static void OnClipboardWrite(nint user, char* text, int units)
+    {
+        try
+        {
+            if (From(user) is { } session)
+            {
+                session.ClipboardWrite?.Invoke(session, new SessionClipboardEventArgs(new string(text, 0, units)));
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"PuttySession.ClipboardWrite handler threw: {ex}");
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static void OnClipboardRequestPaste(nint user)
+    {
+        try
+        {
+            if (From(user) is { } session)
+            {
+                session.ClipboardPasteRequested?.Invoke(session, EventArgs.Empty);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"PuttySession.ClipboardPasteRequested handler threw: {ex}");
         }
     }
 

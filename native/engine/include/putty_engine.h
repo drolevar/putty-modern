@@ -133,6 +133,18 @@ typedef struct pe_terminal_events {
     void (*title)(void *user, const char *utf8_title);
     void (*bell)(void *user);
     void (*scrollbar)(void *user, int32_t total, int32_t start, int32_t page);
+
+    /*
+     * Selected text for the system clipboard (UTF-16, not NUL-terminated, valid during the call).
+     * The host owns the clipboard: this is where it is told to set it.
+     */
+    void (*clipboard_write)(void *user, const wchar_t *text, int32_t units);
+
+    /*
+     * The terminal wants to paste from the system clipboard (a paste key or button). The host reads
+     * the clipboard, which may take a while, and answers with pe_session_paste.
+     */
+    void (*clipboard_request_paste)(void *user);
 } pe_terminal_events;
 
 PE_API int32_t pe_session_set_terminal_events(pe_session *session, const pe_terminal_events *events);
@@ -163,6 +175,48 @@ typedef struct pe_terminal_geometry {
 } pe_terminal_geometry;
 
 PE_API int32_t pe_session_terminal_geometry(pe_session *session, pe_terminal_geometry *out);
+
+/* ----- Mouse, scrolling and pasting ---------------------------------------------------- */
+
+#define PE_MOUSE_DOWN 0
+#define PE_MOUSE_UP   1
+#define PE_MOUSE_MOVE 2
+
+#define PE_BUTTON_LEFT   0
+#define PE_BUTTON_MIDDLE 1
+#define PE_BUTTON_RIGHT  2
+
+#define PE_MOD_SHIFT 1
+#define PE_MOD_CTRL  2
+#define PE_MOD_ALT   4
+
+/*
+ * A pointer event over the terminal view, in view pixels. The engine turns it into what PuTTY's
+ * window does: selection, word and line selection on double and triple click (time_ms is the
+ * event's time in milliseconds on any steady clock), pasting with the configured button, and
+ * mouse reporting to the server when the program asked for it. Move events with a button down
+ * are drags. The host should capture the pointer while a button is down.
+ */
+PE_API int32_t pe_session_mouse(pe_session *session, int32_t kind, int32_t button, int32_t x_px,
+                                int32_t y_px, int32_t modifiers, uint32_t time_ms);
+
+/*
+ * A wheel step: `delta` in units of 120 per notch, positive up (or right if `horizontal`). The
+ * engine scrolls the scrollback or, if the program has asked for mouse reports, reports it.
+ */
+PE_API int32_t pe_session_wheel(pe_session *session, int32_t delta, int32_t horizontal, int32_t x_px,
+                                int32_t y_px, int32_t modifiers);
+
+#define PE_SCROLL_LINES    0   /* relative to now: amount lines, negative is up */
+#define PE_SCROLL_ABSOLUTE 1   /* to the line `amount`, counted from the top of the scrollback */
+#define PE_SCROLL_TOP      2
+#define PE_SCROLL_BOTTOM   3
+
+/* From the host's scrollbar. The scrollbar's state comes back through pe_terminal_events. */
+PE_API int32_t pe_session_scroll(pe_session *session, int32_t mode, int32_t amount);
+
+/* Text to paste into the terminal, from the clipboard the host read (answers clipboard_request_paste). */
+PE_API int32_t pe_session_paste(pe_session *session, const wchar_t *text, int32_t units);
 
 /* Offscreen views only: one pixel of the last finished frame, 0x00RRGGBB. For tests. */
 PE_API int32_t pe_diag_session_read_pixel(pe_session *session, int32_t x, int32_t y, uint32_t *rgb);

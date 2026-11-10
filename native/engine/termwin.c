@@ -356,15 +356,26 @@ static void tw_bell(TermWin *tw, int mode)
         pe_session_notify_bell(w->owner);
 }
 
+/*
+ * Only the system clipboard is the host's business (CLIP_LOCAL is the emulator's own selection
+ * buffer). window.c also puts the text on the clipboard in other formats and tracks ownership; the
+ * host here gets the plain text and decides.
+ */
 static void tw_clip_write(TermWin *tw, int clipboard, wchar_t *text, int *attrs,
                           truecolour *colours, int len, bool must_deselect)
 {
-    (void)tw; (void)clipboard; (void)text; (void)attrs; (void)colours; (void)len; (void)must_deselect;
+    (void)attrs; (void)colours; (void)must_deselect;
+    /* The emulator includes the terminating NUL that the Windows clipboard format wants; the host gets just the text. */
+    while (len > 0 && text[len - 1] == L'\0')
+        len--;
+    if (clipboard == CLIP_SYSTEM && len > 0)
+        pe_session_notify_clipboard_write(TW(tw)->owner, text, len);
 }
 
 static void tw_clip_request_paste(TermWin *tw, int clipboard)
 {
-    (void)tw; (void)clipboard;
+    if (clipboard == CLIP_SYSTEM)
+        pe_session_notify_paste_request(TW(tw)->owner);
 }
 
 static void tw_refresh(TermWin *tw)
@@ -484,6 +495,22 @@ void pe_termwin_use_settings(pe_termwin *w, Terminal *term, Conf *conf)
     w->bold_font = (bold_style & BOLD_STYLE_FONT) != 0;
     w->bold_colours = (bold_style & BOLD_STYLE_COLOUR) != 0;
     w->cursor_type = conf_get_int(conf, CONF_cursor_type);
+
+    /* Which clipboards a selection goes to and which one a mouse paste reads (window.c: setup_clipboards). */
+    term->n_mouse_select_clipboards = 1;
+    if (conf_get_bool(conf, CONF_mouseautocopy))
+        term->mouse_select_clipboards[term->n_mouse_select_clipboards++] = CLIP_SYSTEM;
+    switch (conf_get_int(conf, CONF_mousepaste)) {
+      case CLIPUI_IMPLICIT:
+        term->mouse_paste_clipboard = CLIP_LOCAL;
+        break;
+      case CLIPUI_EXPLICIT:
+        term->mouse_paste_clipboard = CLIP_SYSTEM;
+        break;
+      default:
+        term->mouse_paste_clipboard = CLIP_NULL;
+        break;
+    }
 }
 
 void pe_termwin_set_renderer(pe_termwin *w, pe_renderer *renderer)

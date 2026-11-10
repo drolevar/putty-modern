@@ -84,5 +84,7 @@ void pe_session_schedule_repaint(void *owner);
 void pe_session_notify_title(void *owner, const char *utf8_title);
 void pe_session_notify_bell(void *owner);
 void pe_session_notify_scrollbar(void *owner, int total, int start, int page);
+void pe_session_notify_clipboard_write(void *owner, const wchar_t *text, int units);
+void pe_session_notify_paste_request(void *owner);
 
 #endif /* PUTTY_ENGINE_INTERNAL_H */
