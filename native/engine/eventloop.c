@@ -17,6 +17,7 @@
 
 #include "putty.h"
 #include "putty_engine.h"
+#include "engine_internal.h"
 
 #define PE_WM_RUN_CALLBACKS (WM_APP + 100)
 #define PE_MAX_DRAIN        1000    /* bound on callbacks run while shutting down */
@@ -33,7 +34,7 @@ static struct {
 static pe_diag_counters diag;
 
 /* The engine's single-thread rule, checked on every entry point after pe_init(). */
-static int32_t check_engine_thread(void)
+int32_t pe_check_engine_thread(void)
 {
     if (!pe.initialised)
         return PE_ERR_STATE;
@@ -135,7 +136,7 @@ PE_API int32_t pe_init(void)
 
 PE_API int32_t pe_shutdown(void)
 {
-    int32_t rc = check_engine_thread();
+    int32_t rc = pe_check_engine_thread();
     if (rc != PE_OK)
         return rc;
 
@@ -147,6 +148,7 @@ PE_API int32_t pe_shutdown(void)
     request_callback_notifications(NULL, NULL);
     for (int i = 0; i < PE_MAX_DRAIN && run_toplevel_callbacks(); i++)
         ;
+    pe_sessions_close_all();    /* sessions the host forgot; their handles become invalid */
     sk_cleanup();
     dispatch_pending_messages();
     for (int i = 0; i < PE_MAX_DRAIN && run_toplevel_callbacks(); i++)
@@ -160,7 +162,7 @@ PE_API int32_t pe_shutdown(void)
 
 PE_API int32_t pe_pump(uint32_t timeout_ms)
 {
-    int32_t rc = check_engine_thread();
+    int32_t rc = pe_check_engine_thread();
     if (rc != PE_OK)
         return rc;
 
@@ -186,7 +188,7 @@ static void diag_timer(void *ctx, unsigned long now)
 
 PE_API int32_t pe_diag_queue_callback(void)
 {
-    int32_t rc = check_engine_thread();
+    int32_t rc = pe_check_engine_thread();
     if (rc != PE_OK)
         return rc;
     queue_toplevel_callback(diag_callback, NULL);
@@ -195,7 +197,7 @@ PE_API int32_t pe_diag_queue_callback(void)
 
 PE_API int32_t pe_diag_schedule_timer(uint32_t delay_ms)
 {
-    int32_t rc = check_engine_thread();
+    int32_t rc = pe_check_engine_thread();
     if (rc != PE_OK)
         return rc;
     /*
@@ -209,7 +211,7 @@ PE_API int32_t pe_diag_schedule_timer(uint32_t delay_ms)
 
 PE_API int32_t pe_diag_get_counters(pe_diag_counters *out)
 {
-    int32_t rc = check_engine_thread();
+    int32_t rc = pe_check_engine_thread();
     if (rc != PE_OK)
         return rc;
     *out = diag;

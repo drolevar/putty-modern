@@ -62,6 +62,57 @@ PE_API int32_t pe_shutdown(void);
  */
 PE_API int32_t pe_pump(uint32_t timeout_ms);
 
+/* ----- Sessions ---------------------------------------------------------------------- */
+
+/* Opaque handle to one connection. Valid from pe_session_open until pe_session_close. */
+typedef struct pe_session pe_session;
+
+#define PE_PROTO_RAW     0
+#define PE_PROTO_TELNET  1
+#define PE_PROTO_RLOGIN  2
+#define PE_PROTO_SSH     3
+
+/*
+ * What the engine reports about a session. Every callback runs on the engine thread, with
+ * the 'user' pointer given to pe_session_open. Any of them may be NULL. Strings are UTF-8
+ * and valid only for the duration of the call.
+ *
+ * A callback may call pe_session_close for its own session; the engine defers the actual
+ * teardown until it is safe, and stops delivering events for that session at once.
+ */
+typedef struct pe_session_events {
+    /* Bytes from the remote side. is_stderr is non-zero for the error stream. */
+    void (*output)(void *user, const void *data, uint32_t length, int32_t is_stderr);
+
+    /* One line of PuTTY's event log, such as "Connecting to 127.0.0.1 port 22". */
+    void (*log)(void *user, const char *text);
+
+    /* A problem. is_fatal is non-zero if the connection cannot continue. */
+    void (*error)(void *user, const char *message, int32_t is_fatal);
+
+    /* The connection has ended. Delivered once; the session still has to be closed. */
+    void (*closed)(void *user);
+} pe_session_events;
+
+/*
+ * Opens a connection. The call returns at once; the connection completes asynchronously
+ * and everything that happens is reported through 'events'. If it fails immediately the
+ * 'error' callback has already been called and PE_ERR_FAILED is returned. The events
+ * structure is copied, so it may live on the caller's stack.
+ */
+PE_API int32_t pe_session_open(const char *host, int32_t port, int32_t protocol,
+                               const pe_session_events *events, void *user,
+                               pe_session **out_session);
+
+/* Sends bytes to the remote side. PE_ERR_STATE if the session is closed or invalid. */
+PE_API int32_t pe_session_send(pe_session *session, const void *data, uint32_t length);
+
+/* Returns 1 while the connection is up, 0 once it has ended, or a negative error code. */
+PE_API int32_t pe_session_is_connected(pe_session *session);
+
+/* Closes the connection and frees the session. The handle is invalid afterwards. */
+PE_API int32_t pe_session_close(pe_session *session);
+
 /* ----- Diagnostics, used by tests to check the event loop ------------------------- */
 
 typedef struct pe_diag_counters {
