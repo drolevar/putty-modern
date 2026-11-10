@@ -127,6 +127,23 @@ public static class PuttyEngine
         public static void RaiseWarning(EngineWarningKind kind) =>
             Check(NativeMethods.DiagRaiseWarning((int)kind), nameof(RaiseWarning));
 
+        /// <summary>
+        /// Draws <paramref name="text"/> with the terminal renderer onto an offscreen bitmap and
+        /// reports the cell size and, per character, how many pixels differ from the background.
+        /// Needs no window and no running engine.
+        /// </summary>
+        public static unsafe RenderProbe RenderText(string fontFamily, float sizePx, string text, uint foreground, uint background, bool bold = false)
+        {
+            Check(NativeMethods.DiagRenderText(fontFamily, sizePx, text, foreground, background, bold ? 1 : 0, out NativeDiagRenderResult native), nameof(RenderText));
+            int[] ink = new int[native.Cells];
+            for (int i = 0; i < ink.Length; i++)
+            {
+                ink[i] = native.Ink[i];
+            }
+
+            return new RenderProbe(native.CellWidth, native.CellHeight, ink, native.CornerRgb);
+        }
+
         /// <summary>Reads the counters; <see cref="Initialize"/> resets them to zero.</summary>
         public static DiagnosticCounters GetCounters()
         {
@@ -134,6 +151,9 @@ public static class PuttyEngine
             return new DiagnosticCounters(native.CallbacksRun, native.TimersFired);
         }
     }
+
+    /// <summary>What <see cref="Diagnostics.RenderText"/> drew: the cell size in pixels and, per character, the pixels that differ from the background.</summary>
+    public sealed record RenderProbe(int CellWidth, int CellHeight, int[] Ink, uint CornerRgb);
 
     /// <summary>How many diagnostic callbacks and timers have run since <see cref="Initialize"/>.</summary>
     public readonly record struct DiagnosticCounters(uint CallbacksRun, uint TimersFired);

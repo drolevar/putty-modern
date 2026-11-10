@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(puttyengine LANGUAGES C)
+project(puttyengine LANGUAGES C CXX)
 
 # Single-config generators only (Ninja, see CMakePresets.json): PuTTY's libraries are
 # located by a flat path below, which a multi-config generator would split per config.
@@ -93,7 +93,7 @@ set(PUTTY_CORE_SOURCES
   stubs/no-printing.c              # PuTTY's own stub: printing is out of scope
   windows/no-jump-list.c)          # PuTTY's own stub: no taskbar jump list yet
 
-set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/core_refs.c)
+set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/render.cpp engine/core_refs.c)
 
 if(PUTTY_ENGINE_FULL)
   # The config-box description. Needs the dlg_* functions and show_ca_config_box (slice 4).
@@ -134,4 +134,6 @@ list(TRANSFORM PUTTY_LIBS PREPEND "putty::" OUTPUT_VARIABLE _putty_link_targets)
 target_link_libraries(puttyengine PRIVATE
   ${_putty_link_targets}
   # PuTTY's platform_libraries on Windows
-  advapi32 comdlg32 gdi32 imm32 ole32 shell32 user32 ws2_32 kernel32)
+  advapi32 comdlg32 gdi32 imm32 ole32 shell32 user32 ws2_32 kernel32
+  # the terminal renderer (render.cpp)
+  d2d1 dwrite dxgi d3d11 windowscodecs uuid)

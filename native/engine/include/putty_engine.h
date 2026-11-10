@@ -15,6 +15,7 @@
 #ifndef PUTTY_ENGINE_H
 #define PUTTY_ENGINE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -175,6 +176,22 @@ PE_API int32_t pe_diag_get_counters(pe_diag_counters *out);
 
 /* Makes PuTTY's core raise a warning of the given PE_WARNING_* kind, as it would itself. */
 PE_API int32_t pe_diag_raise_warning(int32_t kind);
+
+/*
+ * Draws `text` (1 to 64 characters, one cell each, spaces left empty) with the terminal renderer
+ * onto an offscreen bitmap and reports what ended up where. Needs no window and no engine.
+ */
+typedef struct pe_diag_render_result {
+    int32_t cell_width;         /* pixels */
+    int32_t cell_height;
+    int32_t cells;              /* how many characters were drawn */
+    int32_t ink[64];            /* per cell: pixels that differ from the background */
+    uint32_t corner_rgb;        /* 0x00RRGGBB of pixel (0, 0) */
+} pe_diag_render_result;
+
+PE_API int32_t pe_diag_render_text(const wchar_t *font_family, float size_px, const wchar_t *text,
+                                   uint32_t fg_rgb, uint32_t bg_rgb, int32_t bold,
+                                   pe_diag_render_result *out);
 
 #ifdef __cplusplus
 }

@@ -59,6 +59,10 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_diag_raise_warning")]
     internal static partial int DiagRaiseWarning(int kind);
 
+    [LibraryImport(Library, EntryPoint = "pe_diag_render_text", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int DiagRenderText(
+        string fontFamily, float sizePx, string text, uint fgRgb, uint bgRgb, int bold, out NativeDiagRenderResult result);
+
     [LibraryImport(Library, EntryPoint = "pe_diag_queue_callback")]
     internal static partial int DiagQueueCallback();
 
@@ -80,6 +84,17 @@ internal unsafe struct NativeSessionEvents
     public delegate* unmanaged<nint, byte*, void> Log;                 // user, utf8 text
     public delegate* unmanaged<nint, byte*, int, void> Error;          // user, utf8 message, isFatal
     public delegate* unmanaged<nint, void> Closed;                     // user
+}
+
+/// <summary>Mirrors <c>pe_diag_render_result</c>.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeDiagRenderResult
+{
+    public int CellWidth;
+    public int CellHeight;
+    public int Cells;
+    public fixed int Ink[64];
+    public uint CornerRgb;
 }
 
 /// <summary>Mirrors <c>pe_diag_counters</c>.</summary>
