@@ -130,6 +130,28 @@ try {
     $greenAfter = [SmokeNative]::CountColour($resized, 0, 187, 0)
     Check 'the terminal grows with the window' ($after -gt $before * 1.1) "(black pixels $before -> $after)"
     Check 'the text is redrawn after the resize' ($greenAfter -gt 30) "($greenAfter green pixels)"
+
+    # Scrollback and the scrollbar. 150 more lines push the banner out of view. The scrollbar is moved
+    # through UI Automation (its RangeValue pattern), not with the mouse, so nothing is injected into the
+    # desktop: that exercises engine -> ScrollbarChanged -> XAML ScrollBar -> ValueChanged -> engine -> repaint.
+    $esc2 = [string][char]27
+    $flood = New-Object System.Text.StringBuilder
+    1..150 | ForEach-Object { [void]$flood.Append("scrollback line $_`r`n") }
+    $floodBytes = [Text.Encoding]::UTF8.GetBytes($flood.ToString())
+    $stream.Write($floodBytes, 0, $floodBytes.Length)
+    Start-Sleep -Seconds 3
+    $bottom = $Screenshot -replace '\.png$', '-bottom.png'
+    & winapp ui screenshot -a PuTTY.App --output $bottom 2>&1 | Out-Null
+    $props = (& winapp ui get-property TerminalScrollBar -a PuTTY.App 2>&1 | Out-String) -replace ($esc2 + '\[[0-9;]*m'), ''
+    Check 'the scrollbar exists and is enabled once there is scrollback' ($props -match 'IsEnabled:\s*True') "($(($props -split "`n" | Where-Object { $_ -match 'AutomationId|IsEnabled' }) -join ' ' -replace '\s+', ' '))"
+    $greenBottom = [SmokeNative]::CountColour($bottom, 0, 187, 0)
+    Check 'the banner has scrolled out of view' ($greenBottom -lt 5) "($greenBottom green pixels at the bottom)"
+    $setResult = (& winapp ui set-value TerminalScrollBar '0' -a PuTTY.App 2>&1 | Out-String)
+    Start-Sleep -Seconds 2
+    $top = $Screenshot -replace '\.png$', '-top.png'
+    & winapp ui screenshot -a PuTTY.App --output $top 2>&1 | Out-Null
+    $greenTop = [SmokeNative]::CountColour($top, 0, 187, 0)
+    Check 'moving the scrollbar to the top scrolls the terminal back to the banner' ($greenTop -gt 30) "($greenTop green pixels at the top; $($setResult.Trim()))"
 }
 finally {
     $closedCleanly = $false
