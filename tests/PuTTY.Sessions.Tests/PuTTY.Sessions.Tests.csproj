@@ -1,0 +1,11 @@
+<Project Sdk="MSTest.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(NetVersion)</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PuTTY.Sessions\PuTTY.Sessions.csproj" />
+  </ItemGroup>
+
+</Project>

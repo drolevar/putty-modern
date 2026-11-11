@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- What the app knows about sessions that PuTTY's own storage does not: folders, recents. A plain
+       library with no WinUI and no native code, so it is NativeAOT-safe and tested on its own. -->
+
+  <PropertyGroup>
+    <TargetFramework>$(NetVersion)</TargetFramework>
+    <RootNamespace>PuTTY.Sessions</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

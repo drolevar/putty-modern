@@ -12,8 +12,10 @@
     <Project Path="src/PuTTY.Interop/PuTTY.Interop.csproj" />
     <Project Path="src/PuTTY.Native/PuTTY.Native.csproj" />
     <Project Path="src/PuTTY.App/PuTTY.App.csproj" />
+    <Project Path="src/PuTTY.Sessions/PuTTY.Sessions.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PuTTY.Interop.Tests/PuTTY.Interop.Tests.csproj" />
+    <Project Path="tests/PuTTY.Sessions.Tests/PuTTY.Sessions.Tests.csproj" />
   </Folder>
 </Solution>
