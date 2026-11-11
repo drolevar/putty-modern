@@ -66,7 +66,12 @@ $xserver = $null
 $server = $null
 $app = $null
 try {
-    # --- the X server, on display :0 (port 6000), with access control off: any cookie is accepted
+    # --- the X server, on display :0 (port 6000), with access control off: any cookie is accepted.
+    # It listens on every interface, which makes Windows Firewall ask whether to allow it: a dialog that then stays in the
+    # foreground of the guest and makes every later check that needs the foreground (a right-click, a drag) refuse to act.
+    # A rule that allows it first means the question is never asked.
+    Get-NetFirewallRule -DisplayName 'puttymodern-vcxsrv' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+    [void](New-NetFirewallRule -DisplayName 'puttymodern-vcxsrv' -Direction Inbound -Program $vcxsrv -Action Allow -Profile Any)
     Get-Process -Name vcxsrv -ErrorAction SilentlyContinue | Stop-Process -Force
     $xserver = Start-Process -FilePath $vcxsrv -ArgumentList @(':0', '-ac', '-nowgl', '-multiwindow', '-noreset') -PassThru
     $listening = $false
@@ -132,6 +137,7 @@ finally {
     if ($app -and -not $app.HasExited) { $app.Kill() }
     if ($server) { try { $server.StandardInput.Close(); if (-not $server.WaitForExit(3000)) { $server.Kill() } } catch { } }
     Get-Process -Name vcxsrv -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-NetFirewallRule -DisplayName 'puttymodern-vcxsrv' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     Remove-Item -Path $workDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "HKCU:\Software\PuttyModernTests\$leaf" -Recurse -Force -ErrorAction SilentlyContinue
 }
