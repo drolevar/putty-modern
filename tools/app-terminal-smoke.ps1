@@ -128,6 +128,29 @@ try {
     $text = [Text.Encoding]::GetEncoding(28591).GetString($received.ToArray()).Replace("`r", '<CR>').Replace("`n", '<LF>')
     Check 'typed text reaches the server' ($text.StartsWith('xy<CR>')) "(server received: $text)"
 
+    # Text that arrives without key messages, which is how an IME's committed text, the emoji panel and voice typing
+    # reach a terminal: they go into the terminal's input box (TerminalInput, which holds the keyboard focus so that
+    # text services have a text store) and from there to the terminal. UI Automation puts text into the box the way
+    # such a service does. The line is flushed with Enter (posted as a thread message, like the typed keys above).
+    $unicode = [string]::Concat([char]0xE9, [char]0x4F60, [char]::ConvertFromUtf32(0x1F600))      # e-acute, a Chinese character, an emoji (code points: this file has no BOM)
+    [void](& winapp ui set-value TerminalInput $unicode -a PuTTY.App 2>&1)
+    Start-Sleep -Milliseconds 800
+    Start-Sleep -Milliseconds 800
+    [void][SmokeNative]::PostThreadMessageW($uiThread, 0x0100, [UIntPtr]::new(13), $lparamDown)
+    [void][SmokeNative]::PostThreadMessageW($uiThread, 0x0101, [UIntPtr]::new(13), $lparamUp)
+    $viaBox = New-Object System.Collections.Generic.List[byte]
+    $deadline = (Get-Date).AddSeconds(10)
+    $expectedBox = [Text.Encoding]::UTF8.GetBytes($unicode).Length + 2
+    while ((Get-Date) -lt $deadline -and $viaBox.Count -lt $expectedBox) {
+        if ($stream.DataAvailable) {
+            $n = $stream.Read($buffer, 0, $buffer.Length)
+            for ($i = 0; $i -lt $n; $i++) { $viaBox.Add($buffer[$i]) }
+        } else { Start-Sleep -Milliseconds 100 }
+    }
+    $boxHex = ($viaBox | ForEach-Object { '{0:X2}' -f $_ }) -join ' '
+    $wantHex = (([Text.Encoding]::UTF8.GetBytes($unicode) + [byte[]](0x0D, 0x0A)) | ForEach-Object { '{0:X2}' -f $_ }) -join ' '
+    Check 'text put into the terminal''s input box reaches the server as UTF-8, an emoji included' ($boxHex -eq $wantHex) "(received: $boxHex)"
+
     # Growing the window must grow the terminal: more of the view is terminal black, and the text is redrawn.
     # Windows does not let a window grow beyond the screen, and the guest's screen is as big as the Sandbox window
     # (1006x677 once), so shrink first and then grow to nearly the whole screen: that works on any screen.

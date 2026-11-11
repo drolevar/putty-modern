@@ -85,6 +85,8 @@ typedef struct pe_termwin {
     bool drawing;                   /* between setup_draw_ctx and free_draw_ctx */
     uint32_t colours[OSC4_NCOLOURS];    /* 0x00RRGGBB, indexed as the emulator's palette (OSC 4) */
     int cursor_type;
+    bool cursor_reported;           /* last_cursor_* is what the host was last told */
+    int last_cursor_x, last_cursor_y;
     bool bold_font;
     bool bold_colours;
     int cursor_x, cursor_y;
@@ -105,5 +107,6 @@ void pe_session_notify_bell(void *owner);
 void pe_session_notify_scrollbar(void *owner, int total, int start, int page);
 void pe_session_notify_clipboard_write(void *owner, const wchar_t *text, int units);
 void pe_session_notify_paste_request(void *owner);
+void pe_session_notify_cursor(void *owner, int x, int y, int width, int height);
 
 #endif /* PUTTY_ENGINE_INTERNAL_H */

@@ -18,6 +18,18 @@ public sealed class SessionTitleEventArgs(string title) : EventArgs
     public string Title { get; } = title;
 }
 
+/// <summary>The cursor is in another cell: its top-left corner in pixels of the view and the size of a cell.</summary>
+public sealed class SessionCursorEventArgs(int x, int y, int width, int height) : EventArgs
+{
+    public int X { get; } = x;
+
+    public int Y { get; } = y;
+
+    public int Width { get; } = width;
+
+    public int Height { get; } = height;
+}
+
 /// <summary>The scrollback changed: <see cref="Total"/> lines in all, <see cref="Start"/> the first one shown, <see cref="Page"/> lines on screen.</summary>
 public sealed class SessionScrollbarEventArgs(int total, int start, int page) : EventArgs
 {
@@ -211,6 +223,9 @@ public sealed unsafe partial class PuttySession : IDisposable
     /// <summary>The scrollback changed. Raised on the engine thread.</summary>
     public event EventHandler<SessionScrollbarEventArgs>? ScrollbarChanged;
 
+    /// <summary>The terminal's cursor moved to another cell. Raised on the engine thread.</summary>
+    public event EventHandler<SessionCursorEventArgs>? CursorMoved;
+
     /// <summary>The most recent error message, or null if none has been reported.</summary>
     public string? LastError { get; private set; }
 
@@ -283,6 +298,7 @@ public sealed unsafe partial class PuttySession : IDisposable
         terminal.Scrollbar = &OnScrollbar;
         terminal.ClipboardWrite = &OnClipboardWrite;
         terminal.ClipboardRequestPaste = &OnClipboardRequestPaste;
+        terminal.Cursor = &OnCursor;
         PuttyEngine.Check(NativeMethods.SessionSetTerminalEvents(handle, &terminal), nameof(Start));
     }
 
@@ -367,6 +383,20 @@ public sealed unsafe partial class PuttySession : IDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         PuttyEngine.Check(NativeMethods.SessionScroll(handle, (int)mode, amount), nameof(Scroll));
+    }
+
+    /// <summary>
+    /// Types text that did not come as key messages (what an IME committed, the emoji panel, voice typing): it goes
+    /// where typed characters go, the line discipline and the connection. A surrogate pair must be in one call.
+    /// </summary>
+    public unsafe void TypeText(string text)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        ArgumentNullException.ThrowIfNull(text);
+        fixed (char* p = text)
+        {
+            PuttyEngine.Check(NativeMethods.SessionTypeText(handle, p, text.Length), nameof(TypeText));
+        }
     }
 
     /// <summary>Pastes text into the terminal (answers <see cref="ClipboardPasteRequested"/>).</summary>
@@ -627,6 +657,22 @@ public sealed unsafe partial class PuttySession : IDisposable
         catch (Exception ex)
         {
             Debug.WriteLine($"PuttySession.ScrollbarChanged handler threw: {ex}");
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static void OnCursor(nint user, int x, int y, int width, int height)
+    {
+        try
+        {
+            if (From(user) is { } session)
+            {
+                session.CursorMoved?.Invoke(session, new SessionCursorEventArgs(x, y, width, height));
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"PuttySession.CursorMoved handler threw: {ex}");
         }
     }
 

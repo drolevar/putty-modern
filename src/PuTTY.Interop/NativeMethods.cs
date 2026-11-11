@@ -181,6 +181,9 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_session_scroll")]
     internal static partial int SessionScroll(nint session, int mode, int amount);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_type_text")]
+    internal static unsafe partial int SessionTypeText(nint session, char* text, int units);
+
     [LibraryImport(Library, EntryPoint = "pe_session_paste")]
     internal static unsafe partial int SessionPaste(nint session, char* text, int units);
 
@@ -290,6 +293,7 @@ internal unsafe struct NativeTerminalEvents
     public delegate* unmanaged<nint, int, int, int, void> Scrollbar;   // user, total, start, page
     public delegate* unmanaged<nint, char*, int, void> ClipboardWrite; // user, utf16 text, units
     public delegate* unmanaged<nint, void> ClipboardRequestPaste;      // user
+    public delegate* unmanaged<nint, int, int, int, int, void> Cursor; // user, x, y, width, height
 }
 
 /// <summary>Mirrors <c>pe_terminal_geometry</c>.</summary>

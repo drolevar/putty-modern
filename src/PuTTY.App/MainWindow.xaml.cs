@@ -234,7 +234,8 @@ public sealed partial class MainWindow : Window
         try
         {
             session = create();
-            session.TitleChanged += (_, e) => Title = $"{e.Title} - PuTTY";
+            // PuTTY's own default title already ends in " - PuTTY" ("host - PuTTY"); a title the server sets does not.
+            session.TitleChanged += (_, e) => Title = e.Title.EndsWith("PuTTY", StringComparison.Ordinal) ? e.Title : $"{e.Title} - PuTTY";
             interaction = new SessionInteraction(session, () => TerminalHost.XamlRoot, terminal.Focus);
             session.Start();
             terminal.Show(session);

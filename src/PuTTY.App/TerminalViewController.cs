@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using PuTTY.Interop;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
@@ -38,6 +39,20 @@ internal sealed class TerminalViewController : IDisposable
     private readonly Grid layout = new();
     private readonly SwapChainPanel panel = new();
     private readonly ScrollBar scrollBar = new();
+
+    /// <summary>
+    /// What makes input methods work. A custom control has no text store, so Windows' text services (TSF) leave an IME
+    /// out of it: measured with Rime Weasel in the Sandbox, pinyin typed into the terminal arrived as plain Latin
+    /// letters. A real <see cref="TextBox"/> has one. So this one, invisible while empty, holds the keyboard focus
+    /// and sits at the terminal's cursor (where the IME's candidate window then opens); the IME composes into it,
+    /// the composition shows at the cursor, and what is committed is passed to the terminal with
+    /// <see cref="PuttySession.TypeText"/> and cleared. Plain keys never reach it: the engine's message hook takes
+    /// them first, except the keys an IME has taken (VK_PROCESSKEY), which are left for TSF.
+    /// </summary>
+    private readonly TextBox proxy = new();
+    private const double RestingOpacity = 0.01;
+    private bool composing;
+    private bool flushing;
     private PuttySession? session;
     private string? fontFamily;
     private bool attached;
@@ -51,8 +66,18 @@ internal sealed class TerminalViewController : IDisposable
         host.IsTabStop = true;
         host.AllowFocusOnInteraction = true;
         host.UseSystemFocusVisuals = false;
-        host.GotFocus += (_, _) => UpdateKeyTarget();
+        host.GotFocus += (_, _) =>
+        {
+            if (proxy.FocusState == FocusState.Unfocused)
+            {
+                proxy.Focus(FocusState.Programmatic);       // the host got the focus (a tab stop, a dialog closing): the box takes it on
+            }
+
+            UpdateKeyTarget();
+        };
         host.LostFocus += (_, _) => PuttySession.SetKeyboardTarget(null);
+
+        ConfigureProxy();
 
         panel.SizeChanged += (_, _) => OnPanelSizeChanged();
         panel.CompositionScaleChanged += (_, _) => OnPanelSizeChanged();
@@ -78,7 +103,113 @@ internal sealed class TerminalViewController : IDisposable
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(scrollBar, 1);
         layout.Children.Add(panel);
+        layout.Children.Add(proxy);
         layout.Children.Add(scrollBar);
+    }
+
+    /// <summary>The proxy box looks like nothing until something is being composed in it, and takes no mouse.</summary>
+    private void ConfigureProxy()
+    {
+        proxy.BorderThickness = new Thickness(0);
+        proxy.Padding = new Thickness(0);
+        proxy.MinWidth = 2;
+        proxy.IsHitTestVisible = false;
+        proxy.IsSpellCheckEnabled = false;
+        proxy.IsTextPredictionEnabled = false;
+        proxy.AcceptsReturn = false;
+        proxy.HorizontalAlignment = HorizontalAlignment.Left;
+        proxy.VerticalAlignment = VerticalAlignment.Top;
+        proxy.Opacity = RestingOpacity;                       // visible only while it holds composition text; not 0: WinUI raises TextChanged in a render pass, which an element at opacity 0 never gets
+        proxy.UseSystemFocusVisuals = false;
+
+        // The terminal's own colours, in every state of the box (its default theme paints a white box with an accent underline).
+        var black = new SolidColorBrush(Microsoft.UI.Colors.Black);
+        var light = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 187, 187, 187));
+        var none = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        foreach (string key in new[] { "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused", "TextControlBackgroundDisabled" })
+        {
+            proxy.Resources[key] = black;
+        }
+
+        foreach (string key in new[] { "TextControlBorderBrush", "TextControlBorderBrushPointerOver", "TextControlBorderBrushFocused", "TextControlBorderBrushDisabled" })
+        {
+            proxy.Resources[key] = none;
+        }
+
+        foreach (string key in new[] { "TextControlForeground", "TextControlForegroundPointerOver", "TextControlForegroundFocused" })
+        {
+            proxy.Resources[key] = light;
+        }
+
+        AutomationProperties.SetAutomationId(proxy, "TerminalInput");
+        AutomationProperties.SetName(proxy, "Terminal input");
+
+        proxy.GotFocus += (_, _) => UpdateKeyTarget();
+        proxy.TextCompositionStarted += (_, _) => { composing = true; proxy.Opacity = 1; };
+        proxy.TextCompositionEnded += (_, _) =>
+        {
+            composing = false;
+            FlushProxy();
+        };
+        proxy.TextChanged += (_, _) => OnProxyTextChanged("TextChanged");
+        // TextChanged is not raised for every change (it did not fire for text set through UI Automation, which is what
+        // voice typing and the emoji panel resemble), but TextChanging is, synchronously and before Text is updated:
+        // look again once the change has been applied.
+        proxy.TextChanging += (_, _) => host.DispatcherQueue.TryEnqueue(() => OnProxyTextChanged("TextChanging"));
+    }
+
+    private void OnProxyTextChanged(string source)
+    {
+        proxy.Opacity = proxy.Text.Length > 0 ? 1 : RestingOpacity;
+        if (!composing)
+        {
+            FlushProxy();           // text with no composition: the emoji panel, voice typing
+        }
+    }
+
+    /// <summary>Passes what the proxy box holds (committed text) to the terminal and empties the box.</summary>
+    private void FlushProxy()
+    {
+        if (flushing || proxy.Text.Length == 0)
+        {
+            return;
+        }
+
+        string text = proxy.Text;
+        flushing = true;
+        try
+        {
+            proxy.Text = string.Empty;
+            proxy.Opacity = RestingOpacity;
+        }
+        finally
+        {
+            flushing = false;
+        }
+
+        try
+        {
+            session?.TypeText(text);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Typed text could not be sent: {ex.Message}");      // the session ended under the IME
+        }
+    }
+
+    /// <summary>The box goes where the cursor is, so that the composition appears there and the IME opens its candidates next to it.</summary>
+    private void OnCursorMoved(object? sender, SessionCursorEventArgs e)
+    {
+        double scaleX = Math.Max(0.1, panel.CompositionScaleX);
+        double scaleY = Math.Max(0.1, panel.CompositionScaleY);
+        proxy.Margin = new Thickness(e.X / scaleX, e.Y / scaleY, 0, 0);
+        proxy.Height = e.Height / scaleY;
+        proxy.MinHeight = e.Height / scaleY;
+        proxy.FontSize = FontSizeDips;
+        if (fontFamily is not null)
+        {
+            proxy.FontFamily = new FontFamily(fontFamily);
+        }
     }
 
     /// <summary>The session shown, or null.</summary>
@@ -97,12 +228,13 @@ internal sealed class TerminalViewController : IDisposable
         session = newSession;
         attached = false;
         session.ScrollbarChanged += OnScrollbarChanged;
+        session.CursorMoved += OnCursorMoved;
         session.ClipboardWrite += OnClipboardWrite;
         session.ClipboardPasteRequested += OnClipboardPasteRequested;
         host.Content = layout;
         layout.UpdateLayout();
         TryAttach();
-        host.Focus(FocusState.Programmatic);
+        proxy.Focus(FocusState.Programmatic);
     }
 
     private void Detach()
@@ -110,13 +242,14 @@ internal sealed class TerminalViewController : IDisposable
         if (session is { } old)
         {
             old.ScrollbarChanged -= OnScrollbarChanged;
+            old.CursorMoved -= OnCursorMoved;
             old.ClipboardWrite -= OnClipboardWrite;
             old.ClipboardPasteRequested -= OnClipboardPasteRequested;
         }
     }
 
     /// <summary>Puts the keyboard focus on the terminal, for instance after a dialog closed.</summary>
-    public void Focus() => host.Focus(FocusState.Programmatic);
+    public void Focus() => proxy.Focus(FocusState.Programmatic);
 
     private (int Width, int Height) PhysicalSize() => (
         (int)Math.Round(panel.ActualWidth * panel.CompositionScaleX),
@@ -181,7 +314,7 @@ internal sealed class TerminalViewController : IDisposable
 
     private void UpdateKeyTarget()
     {
-        if (attached && session is not null && host.FocusState != FocusState.Unfocused)
+        if (attached && session is not null && (proxy.FocusState != FocusState.Unfocused || host.FocusState != FocusState.Unfocused))
         {
             PuttySession.SetKeyboardTarget(session);
         }
@@ -232,7 +365,7 @@ internal sealed class TerminalViewController : IDisposable
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        host.Focus(FocusState.Pointer);
+        proxy.Focus(FocusState.Pointer);
         if (!MouseReady)
         {
             return;

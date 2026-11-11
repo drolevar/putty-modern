@@ -53,6 +53,14 @@ if ($Smoke -eq 'openssh') {
     }
     if ((Get-Service sshd -ErrorAction SilentlyContinue) -and (Get-Service sshd).Status -ne 'Running') { Start-Service sshd }
 }
+# The check of input through a real IME needs one: Rime Weasel, a text service (TSF) like the Microsoft ones, installable
+# with winget without language packs (the Sandbox's Windows Update cannot add those).
+if ($Smoke -eq 'ime') {
+    if (-not (Test-Path 'C:\Program Files\Rime')) {
+        Write-Host 'Installing the Rime Weasel IME with winget ...'
+        & winget install --id Rime.Weasel --exact --silent --accept-package-agreements --accept-source-agreements
+    }
+}
 Get-Process -Name 'PuTTY.App' -ErrorAction SilentlyContinue | Stop-Process -Force
 
 $script = Join-Path $work "tools\app-$Smoke-smoke.ps1"

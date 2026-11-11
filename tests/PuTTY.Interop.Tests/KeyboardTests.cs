@@ -192,6 +192,20 @@ public sealed partial class KeyboardTests
     }
 
     [TestMethod]
+    public void Text_typed_through_TypeText_reaches_the_server_as_UTF8()
+    {
+        // What the IME proxy hands over: committed composition text, which never arrives as key messages.
+        using var rig = new Rig();
+
+        rig.Engine.Run(() => rig.Session.TypeText("\u4F60\u597D"));              // two Chinese characters
+        rig.Engine.Run(() => rig.Session.TypeText("a\U0001F600b"));              // an emoji, as a surrogate pair inside one call
+
+        byte[] expected = [0xE4, 0xBD, 0xA0, 0xE5, 0xA5, 0xBD, 0x61, 0xF0, 0x9F, 0x98, 0x80, 0x62];
+        Assert.IsTrue(rig.WaitForBytes(expected.Length), "got only " + BitConverter.ToString(rig.Received));
+        CollectionAssert.AreEqual(expected, rig.Received[..expected.Length]);
+    }
+
+    [TestMethod]
     public void Text_posted_as_characters_is_sent_as_UTF8_including_surrogate_pairs()
     {
         using var rig = new Rig();

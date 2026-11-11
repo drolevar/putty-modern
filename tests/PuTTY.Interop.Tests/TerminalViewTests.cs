@@ -95,6 +95,27 @@ public sealed class TerminalViewTests
     }
 
     [TestMethod]
+    public void The_host_is_told_where_the_cursor_is_when_it_moves_to_another_cell()
+    {
+        var moves = new List<SessionCursorEventArgs>();
+        using var rig = new Rig();
+        rig.Engine.Run(() => rig.Session.CursorMoved += (_, e) => { lock (moves) { moves.Add(e); } });
+
+        rig.Send("Hi");
+        Assert.IsTrue(EngineThread.WaitUntil(() => { lock (moves) { return moves.Any(m => m.X == 2 * rig.CellWidth && m.Y == 0); } }, Generous),
+            "the cursor should be reported after two characters, at x = " + 2 * rig.CellWidth);
+        rig.Send("\r\n");
+        Assert.IsTrue(EngineThread.WaitUntil(() => { lock (moves) { return moves.Any(m => m.X == 0 && m.Y == rig.CellHeight); } }, Generous),
+            "the cursor should be reported at the start of the next line");
+        lock (moves)
+        {
+            Assert.IsTrue(moves.All(m => m.Width == rig.CellWidth && m.Height == rig.CellHeight), "each report carries the cell size");
+            int count = moves.Count;
+            Assert.IsTrue(count <= 6, $"a report per cell moved to, not per blink or repaint ({count})");
+        }
+    }
+
+    [TestMethod]
     public void Text_from_the_server_is_drawn_in_the_default_colours()
     {
         using var rig = new Rig();

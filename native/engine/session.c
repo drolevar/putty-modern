@@ -992,6 +992,13 @@ void pe_session_notify_paste_request(void *owner)
         TERMINAL_EVENT_NOARGS(s, clipboard_request_paste);
 }
 
+void pe_session_notify_cursor(void *owner, int x, int y, int width, int height)
+{
+    pe_session *s = (pe_session *)owner;
+    if (session_is_live(s))
+        TERMINAL_EVENT(s, cursor, x, y, width, height);
+}
+
 static void repaint_callback(void *ctx)
 {
     pe_session *s = (pe_session *)ctx;
@@ -1305,6 +1312,18 @@ PE_API int32_t pe_session_paste(pe_session *s, const wchar_t *text, int32_t unit
         return PE_ERR_STATE;
     if (units > 0)
         term_do_paste(s->term, text, (size_t)units);
+    return PE_OK;
+}
+
+PE_API int32_t pe_session_type_text(pe_session *s, const wchar_t *text, int32_t units)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || s->pending_close || !s->term || !text || units < 0)
+        return PE_ERR_STATE;
+    if (units > 0)
+        term_keyinputw(s->term, text, units);       /* the path window.c gives WM_CHAR text: line discipline, then the backend */
     return PE_OK;
 }
 

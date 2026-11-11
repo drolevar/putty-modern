@@ -235,6 +235,20 @@ static void tw_draw_cursor(TermWin *tw, int x, int y, wchar_t *text, int len,
 
     lattr &= LATTR_MODE;
 
+    if (r) {
+        /* Tell the host where the cursor is, once per cell it moves to (not at every blink): see pe_terminal_events.cursor. */
+        int32_t cell_w = 0, cell_h = 0;
+        pe_render_cell_size(r, &cell_w, &cell_h);
+        int cursor_x = x * cell_w * (1 + (lattr != LATTR_NORM));
+        int cursor_y = y * cell_h;
+        if (!w->cursor_reported || cursor_x != w->last_cursor_x || cursor_y != w->last_cursor_y) {
+            w->cursor_reported = true;
+            w->last_cursor_x = cursor_x;
+            w->last_cursor_y = cursor_y;
+            pe_session_notify_cursor(w->owner, cursor_x, cursor_y, cell_w, cell_h);
+        }
+    }
+
     if ((attr & ATTR_ACTCURS) && (ctype == CURSOR_BLOCK || w->term->big_cursor)) {
         if (*text != UCSWIDE) {
             tw_draw_text(tw, x, y, text, len, attr, lattr, tc);
@@ -518,6 +532,7 @@ void pe_termwin_set_renderer(pe_termwin *w, pe_renderer *renderer)
     if (w->renderer)
         pe_render_destroy(w->renderer);
     w->renderer = renderer;
+    w->cursor_reported = false;       /* a new surface: tell the host where the cursor is again */
     w->drawing = false;
 }
 

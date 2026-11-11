@@ -261,6 +261,13 @@ typedef struct pe_terminal_events {
      * the clipboard, which may take a while, and answers with pe_session_paste.
      */
     void (*clipboard_request_paste)(void *user);
+
+    /*
+     * The terminal's cursor is drawn in another cell: its top-left corner in pixels of the view, and the size
+     * of its cell. For a host that places something at the cursor (the box that receives IME composition, so
+     * that the IME's candidate window opens there). Reported when the cell changes, not at every blink.
+     */
+    void (*cursor)(void *user, int32_t x, int32_t y, int32_t width, int32_t height);
 } pe_terminal_events;
 
 PE_API int32_t pe_session_set_terminal_events(pe_session *session, const pe_terminal_events *events);
@@ -330,6 +337,13 @@ PE_API int32_t pe_session_wheel(pe_session *session, int32_t delta, int32_t hori
 
 /* From the host's scrollbar. The scrollbar's state comes back through pe_terminal_events. */
 PE_API int32_t pe_session_scroll(pe_session *session, int32_t mode, int32_t amount);
+
+/*
+ * Text the user typed that did not come as key messages: what an IME committed, the emoji panel, voice typing
+ * (UTF-16, not NUL-terminated). It goes where typed characters go (the line discipline, the connection), as
+ * window.c does with WM_CHAR text; a surrogate pair must arrive whole.
+ */
+PE_API int32_t pe_session_type_text(pe_session *session, const wchar_t *text, int32_t units);
 
 /* Text to paste into the terminal, from the clipboard the host read (answers clipboard_request_paste). */
 PE_API int32_t pe_session_paste(pe_session *session, const wchar_t *text, int32_t units);
