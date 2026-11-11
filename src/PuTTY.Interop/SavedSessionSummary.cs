@@ -12,6 +12,14 @@ public enum SavedSessionProtocol
     Other = 6,
 }
 
+/// <summary>Where an open session connects: see <see cref="PuttySession.GetEndpoint"/>.</summary>
+/// <param name="Host">The host name or address; the serial line for a Serial session.</param>
+/// <param name="Port">The port.</param>
+/// <param name="Protocol">How it connects.</param>
+/// <param name="UserName">The user name in its settings, or null.</param>
+/// <param name="KeyFile">The private key file in its settings, or null.</param>
+public sealed record SessionEndpoint(string Host, int Port, SavedSessionProtocol Protocol, string? UserName, string? KeyFile);
+
 /// <summary>Where a saved session connects to: enough for a line in a list. See <see cref="PuttySessions.Describe"/>.</summary>
 /// <param name="Host">The host name or address; the serial line for a Serial session; empty for a session saved without one.</param>
 /// <param name="Port">The saved port (meaningless for Serial).</param>

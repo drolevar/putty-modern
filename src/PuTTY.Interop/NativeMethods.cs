@@ -50,6 +50,9 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_sessions_enumerate")]
     internal static unsafe partial int SessionsEnumerate(delegate* unmanaged<nint, byte*, void> callback, nint user);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_get_endpoint")]
+    internal static unsafe partial int SessionGetEndpoint(nint session, NativeSessionEndpoint* endpoint);
+
     [LibraryImport(Library, EntryPoint = "pe_session_summary", StringMarshalling = StringMarshalling.Utf8)]
     internal static unsafe partial int SessionSummary(string name, byte* host, int hostSize, out int protocol, out int port);
 
@@ -285,6 +288,18 @@ internal unsafe struct NativeSessionOptions
     public byte* Command;
     public int TryAgent;                                               // -1 default, 0 off, 1 on
     public uint Flags;                                                 // 1 = start from the saved Default Settings
+}
+
+/// <summary>Mirrors <c>pe_session_endpoint</c>.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeSessionEndpoint
+{
+    public int Size;
+    public int Protocol;
+    public int Port;
+    public fixed byte Host[256];
+    public fixed byte UserName[128];
+    public fixed byte KeyFile[512];
 }
 
 /// <summary>Mirrors <c>pe_terminal_events</c>.</summary>

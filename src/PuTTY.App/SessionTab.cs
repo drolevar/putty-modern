@@ -40,8 +40,14 @@ internal sealed class SessionTab : IDisposable
     /// <summary>What the tab is called: the saved session's name, or the host.</summary>
     public string Title { get; }
 
+    /// <summary>The name in PuTTY's storage if the session was opened from one, so that it can be opened by that name again.</summary>
+    public string? SavedName { get; init; }
+
     /// <summary>Where it connects ("10.20.0.12 · SSH"), or null.</summary>
     public string? Description { get; }
+
+    /// <summary>What the SSH connection negotiated, learned from PuTTY's log lines; a new one for each connection.</summary>
+    public ConnectionFacts Facts { get; private set; } = new();
 
     /// <summary>False once the connection has ended (the tab stays, with what the server last said).</summary>
     public bool Connected { get; set; } = true;
@@ -58,6 +64,7 @@ internal sealed class SessionTab : IDisposable
         SessionInteraction oldInteraction = interaction;
         PuttySession old = Session;
         Session = fresh;
+        Facts = new ConnectionFacts();      // the new connection negotiates afresh
         interaction = freshInteraction;
         oldInteraction.Dispose();
         old.Dispose();

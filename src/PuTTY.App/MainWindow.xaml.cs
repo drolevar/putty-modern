@@ -1,4 +1,6 @@
 using Digi21.WinUI.Docking;
+using Digi21.WinUI.Docking.Serialization;
+using PuTTY.Sessions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using PuTTY.App.Settings;
@@ -21,6 +23,12 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<DocumentWindow, SessionTab> tabOf = [];
     private SessionTab? active;
     private int tabCounter;
+    private bool restored;
+    private readonly bool startedWithTarget = ConnectionTarget.FromArguments(Environment.GetCommandLineArgs()) is not null;
+    private readonly WorkspaceStateStore workspaceStore = new(
+        TestRegistry.WorkspaceFileOverride is { } folders
+            ? Path.Combine(Path.GetDirectoryName(folders)!, "layout.json")      // a test run keeps it with its other scratch files
+            : WorkspaceStateStore.DefaultPath);
     private const char MiddleDot = (char)0xB7;      // the dot of "host . protocol" in a tabs description
     private bool welcomeClosed;
 
@@ -46,6 +54,9 @@ public sealed partial class MainWindow : Window
             }
         };
 
+        // The layout and the open sessions come back as they were; they are saved when the window closes.
+        DockSite.Loaded += (_, _) => RestoreWorkspace();
+        AppWindow.Closing += (_, _) => SaveWorkspace();
         DockSite.WindowActivated += (_, e) =>
         {
             if (e.Window is DocumentWindow document && tabOf.TryGetValue(document, out SessionTab? tab))
@@ -113,7 +124,7 @@ public sealed partial class MainWindow : Window
         PuttySessionOptions? options = target.UserName is null && target.KeyFile is null
             ? null
             : new PuttySessionOptions { UserName = target.UserName, KeyFile = target.KeyFile };
-        StartSession(() => new PuttySession(target.Host, target.Port, target.Protocol, options), target.Host, $"{target.Host}:{target.Port}");
+        StartSession(() => new PuttySession(target.Host, target.Port, target.Protocol, options), target.Host, $"{target.Host}:{target.Port}", savedName: null);
     }
 
     /// <summary>
@@ -226,7 +237,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (StartSession(() => PuttySession.OpenSaved(name), name, PuttySessions.Describe(name)?.Description))
+        if (StartSession(() => PuttySession.OpenSaved(name), name, PuttySessions.Describe(name)?.Description, savedName: name))
         {
             sessions.NoteOpened(name);      // it goes to the top of RECENT
         }
@@ -234,9 +245,31 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// Starts a session in a new tab: a document with a terminal view of its own, beside the tabs that are open. false
-    /// (after telling the user) if it could not be started.
+    /// (after telling the user) if it could not be started. <paramref name="savedName"/> is the name in PuTTY's storage if
+    /// it was opened from one (it is opened by that name again when the workspace is restored).
     /// </summary>
-    private bool StartSession(Func<PuttySession> create, string title, string? description = null)
+    private bool StartSession(Func<PuttySession> create, string title, string? description = null, string? savedName = null)
+    {
+        SessionTab? tab = CreateTab(create, title, description, savedName, $"doc.session.{++tabCounter}");
+        if (tab is null)
+        {
+            return false;
+        }
+
+        DockSite.OpenDocument(tab.Document);
+        CloseWelcomeDocument();
+        tab.Terminal.Show(tab.Session);
+        tab.Document.Activate();
+        Activate(tab);
+        return true;
+    }
+
+    /// <summary>
+    /// Makes a tab and starts its session, without putting the document anywhere: <see cref="StartSession"/> opens it in
+    /// the document area, and the layout loader places it where it was. Null (after telling the user) if the session could
+    /// not be started.
+    /// </summary>
+    private SessionTab? CreateTab(Func<PuttySession> create, string title, string? description, string? savedName, string documentId)
     {
         PuttySession? session = null;
         TerminalViewController? terminal = null;
@@ -246,21 +279,16 @@ public sealed partial class MainWindow : Window
             session = create();
             var host = new UserControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
             terminal = new TerminalViewController(host);
-            var document = new DocumentWindow { Title = title, Content = host, SerializationId = $"doc.session.{++tabCounter}" };
+            var document = new DocumentWindow { Title = title, Content = host, SerializationId = documentId };
             interaction = new SessionInteraction(session, () => DockSite.XamlRoot, terminal.Focus);
-            var tab = new SessionTab(document, host, terminal, session, interaction, title, description);
+            var tab = new SessionTab(document, host, terminal, session, interaction, title, description) { SavedName = savedName };
             terminal.Resized += () => { if (ReferenceEquals(active, tab)) { UpdateStatus(); } };
             Wire(tab, session);
             session.Start();
 
             tabs.Add(tab);
             tabOf[document] = tab;
-            DockSite.OpenDocument(document);
-            CloseWelcomeDocument();
-            terminal.Show(session);
-            document.Activate();
-            Activate(tab);
-            return true;
+            return tab;
         }
         catch (InvalidOperationException ex)
         {
@@ -268,16 +296,159 @@ public sealed partial class MainWindow : Window
             terminal?.Dispose();
             session?.Dispose();
             _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not connect", ex.Message);
-            return false;
+            return null;
         }
     }
 
+    // ----- The workspace that comes back ------------------------------------------------------------
+
+    /// <summary>
+    /// Saves how the panels and document groups are laid out, and which session was open in which document, for the
+    /// next start. Runs when the window is closing, while everything is still there to read.
+    /// </summary>
+    private void SaveWorkspace()
+    {
+        if (!App.EngineRunning || startedWithTarget)
+        {
+            return;         // a run started with --connect (tests, development) neither restores nor saves a workspace
+        }
+
+        try
+        {
+            var state = new WorkspaceState { Layout = new DockSiteLayoutSerializer().SaveToString(DockSite) };
+            foreach (SessionTab tab in tabs)
+            {
+                var record = new OpenSessionRecord { Id = tab.Document.SerializationId ?? string.Empty, Title = tab.Title, Description = tab.Description, SavedName = tab.SavedName };
+                if (record.SavedName is null)
+                {
+                    SessionEndpoint endpoint = tab.Session.GetEndpoint();      // opened from the settings window or typed: where it connects
+                    record.Host = endpoint.Host;
+                    record.Port = endpoint.Port;
+                    record.Protocol = ProtocolText(endpoint.Protocol);
+                    record.UserName = endpoint.UserName;
+                    record.KeyFile = endpoint.KeyFile;
+                }
+
+                state.Sessions.Add(record);
+            }
+
+            workspaceStore.Save(state);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ObjectDisposedException)
+        {
+            System.Diagnostics.Debug.WriteLine($"The workspace could not be saved: {ex.Message}");      // not worth stopping the window from closing
+        }
+    }
+
+    /// <summary>
+    /// Puts the saved layout back and opens the sessions that were open, each in its document. The layout loader asks for
+    /// each document by id; a session is made (and connects) for the ones that were sessions. A layout that cannot be
+    /// read is ignored: the application starts with its default arrangement and nothing is opened.
+    /// </summary>
+    private void RestoreWorkspace()
+    {
+        if (restored || !App.EngineRunning || startedWithTarget)
+        {
+            return;
+        }
+
+        restored = true;
+        WorkspaceState? state = workspaceStore.Load();
+        if (state?.Layout is not { Length: > 0 } layout)
+        {
+            return;
+        }
+
+        var created = new List<SessionTab>();
+        var serializer = new DockSiteLayoutSerializer();
+        serializer.DocumentResolving += (_, e) =>
+        {
+            if (state.Sessions.FirstOrDefault(r => r.Id == e.Id) is { } record && TabFor(record) is { } tab)
+            {
+                created.Add(tab);
+                e.Document = tab.Document;
+            }
+        };
+        try
+        {
+            serializer.LoadFromString(DockSite, layout);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            System.Diagnostics.Debug.WriteLine($"The saved layout could not be used: {ex.Message}");
+            foreach (SessionTab tab in created)
+            {
+                tabs.Remove(tab);
+                tabOf.Remove(tab.Document);
+                tab.Dispose();
+            }
+
+            return;
+        }
+
+        foreach (SessionTab tab in created)
+        {
+            tab.Terminal.Show(tab.Session);
+            tabCounter = Math.Max(tabCounter, NumberOf(tab.Document.SerializationId ?? string.Empty));
+        }
+
+        if (created.Count > 0)
+        {
+            welcomeClosed = true;           // the loader closed it: the layout had no place for it
+            Activate(DockSite.ActiveDocument is { } shown && tabOf.TryGetValue(shown, out SessionTab? current) ? current : created[^1]);
+        }
+    }
+
+    /// <summary>A tab for a saved record: opened by its saved name, or by where it connected.</summary>
+    private SessionTab? TabFor(OpenSessionRecord record)
+    {
+        Func<PuttySession>? create = null;
+        if (record.SavedName is { } name)
+        {
+            create = () => PuttySession.OpenSaved(name);
+        }
+        else if (record.Host is { Length: > 0 } host && ProtocolOf(record.Protocol) is { } protocol)
+        {
+            var options = record.UserName is null && record.KeyFile is null ? null : new PuttySessionOptions { UserName = record.UserName, KeyFile = record.KeyFile };
+            create = () => new PuttySession(host, record.Port, protocol, options);
+        }
+
+        return create is null ? null : CreateTab(create, record.Title, record.Description, record.SavedName, record.Id);
+    }
+
+    private static string ProtocolText(SavedSessionProtocol protocol) => protocol switch
+    {
+        SavedSessionProtocol.Raw => "raw",
+        SavedSessionProtocol.Telnet => "telnet",
+        SavedSessionProtocol.Rlogin => "rlogin",
+        SavedSessionProtocol.Ssh => "ssh",
+        _ => "other",
+    };
+
+    private static SessionProtocol? ProtocolOf(string? text) => text switch
+    {
+        "raw" => SessionProtocol.Raw,
+        "telnet" => SessionProtocol.Telnet,
+        "rlogin" => SessionProtocol.Rlogin,
+        "ssh" => SessionProtocol.Ssh,
+        _ => null,          // serial and the rest are opened only from a saved name
+    };
+
+    /// <summary>The number in "doc.session.7", so that new tabs get ids beyond the restored ones; 0 for any other id.</summary>
+    private static int NumberOf(string id) => id.StartsWith("doc.session.", StringComparison.Ordinal) && int.TryParse(id["doc.session.".Length..], out int n) ? n : 0;
     /// <summary>What a tab does with its session's events: the server's title for the title bar, and the end of the connection.</summary>
     private void Wire(SessionTab tab, PuttySession session)
     {
         // The connection log: PuTTY's own event log lines and errors, with the tab's name. Subscribed before Start, so the
         // first lines ("Connecting to ...") are there too.
-        session.Log += (_, e) => log.Add(tab.Title, e.Text);
+        session.Log += (_, e) =>
+        {
+            log.Add(tab.Title, e.Text);
+            if (ReferenceEquals(tab.Session, session) && tab.Facts.Update(e.Text) && ReferenceEquals(active, tab))
+            {
+                details.ShowFacts(tab.Facts);       // the key exchange, cipher or host key was just learned
+            }
+        };
         session.Error += (_, e) => log.Add(tab.Title, e.Message, error: true);
         session.CursorMoved += (_, e) =>
         {
@@ -342,7 +513,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        StartSession(() => tab.Session.Clone(), tab.Title, tab.Description);
+        StartSession(() => tab.Session.Clone(), tab.Title, tab.Description, tab.SavedName);
     }
 
     /// <summary>
@@ -399,6 +570,16 @@ public sealed partial class MainWindow : Window
         active = tab;
         details.Show(tab.Title, tab.Description);
         details.SetConnected(tab.Connected);
+        details.ShowFacts(tab.Facts);
+        try
+        {
+            details.ShowEndpoint(tab.Session.GetEndpoint());
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            details.ShowEndpoint(null);         // the session is gone: nothing to say about where it was
+        }
+
         Title = tab.WindowTitle;
         UpdateStatus();
         tab.Terminal.Focus();

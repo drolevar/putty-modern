@@ -135,6 +135,14 @@ try {
     Check 'the server saw a successful login' (($events | Where-Object { $_ -match '"event":"auth".*"ok":true' }).Count -gt 0) "($($events -join ' '))"
     Check 'the server started a shell' ($events -contains '{"event":"shell"}')
 
+    # --- the session details panel reads what PuTTY says about the connection
+    Check 'the details panel names the key exchange' ((Ui @('get-property', 'SessionDetailsKeyExchange')) -match 'Name:\s*\S')
+    Check 'and the cipher' ((Ui @('get-property', 'SessionDetailsCipher')) -match 'Name:\s*\S')
+    $shownFingerprint = Ui @('get-property', 'SessionDetailsFingerprint')
+    Check 'and the host key fingerprint, which is the one the server has' ($shownFingerprint -match [regex]::Escape($info.sha256)) "($($shownFingerprint -replace '\s+', ' '))"
+    Check 'with a button that copies it' ((Ui @('search', 'CopyFingerprintButton')) -match 'Found [1-9]')
+    Check 'the connection rows say where it connects' (((Ui @('get-property', 'SessionDetailsHost')) -match '127\.0\.0\.1'))
+
     # --- type a command (thread messages, as Windows would post them)
     Start-Sleep -Seconds 1
     Focus-Terminal       # the terminal takes keys only with the keyboard focus (tools\smoke-common.ps1)

@@ -175,6 +175,24 @@ public sealed unsafe partial class PuttySession : IDisposable
     }
 
     /// <summary>
+    /// Where this session connects, as its settings say now (host, or the serial line; port; protocol; user name; key
+    /// file), for opening the same place again when it was not opened from a saved name.
+    /// </summary>
+    public unsafe SessionEndpoint GetEndpoint()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        NativeSessionEndpoint native = default;
+        native.Size = sizeof(NativeSessionEndpoint);
+        PuttyEngine.Check(NativeMethods.SessionGetEndpoint(handle, &native), nameof(GetEndpoint));
+        return new SessionEndpoint(
+            Marshal.PtrToStringUTF8((nint)native.Host) ?? string.Empty,
+            native.Port,
+            (SavedSessionProtocol)native.Protocol,
+            Marshal.PtrToStringUTF8((nint)native.UserName) is { Length: > 0 } user ? user : null,
+            Marshal.PtrToStringUTF8((nint)native.KeyFile) is { Length: > 0 } key ? key : null);
+    }
+
+    /// <summary>
     /// A new session with a copy of this one's settings (host, port, protocol, user name, everything, including what
     /// Change Settings altered), for Reconnect and Duplicate. Not started yet. This session must still be open when the
     /// new one is started: it is where the settings are copied from.

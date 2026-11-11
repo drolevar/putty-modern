@@ -209,6 +209,23 @@ typedef void (*pe_name_fn)(void *user, const char *name);
 PE_API int32_t pe_sessions_enumerate(pe_name_fn callback, void *user);
 
 /*
+ * Where an open session connects, as its settings now say: for opening the same place again (a workspace that comes back
+ * after a restart) when the session was not opened from a saved name. Strings are UTF-8, always terminated; a serial
+ * session has its line in `host`. `size` is set by the caller to sizeof(pe_session_endpoint). PE_ERR_STATE if the session
+ * is not live.
+ */
+typedef struct pe_session_endpoint {
+    int32_t size;
+    int32_t protocol;               /* PE_PROTO_* */
+    int32_t port;
+    char host[256];
+    char user_name[128];
+    char key_file[512];
+} pe_session_endpoint;
+
+PE_API int32_t pe_session_get_endpoint(pe_session *session, pe_session_endpoint *out);
+
+/*
  * What a saved session connects to, for the list: the host name (the serial line for a Serial session) as
  * UTF-8 into `host` (at most host_size-1 bytes, always terminated), the port, and the protocol as a PE_PROTO_*
  * value. The storage is only read. PE_ERR_FAILED if there is no such session.

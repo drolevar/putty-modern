@@ -690,6 +690,45 @@ int32_t pe_session_open_conf(Conf *conf, const pe_session_events *events, void *
     sfree(host);
     return rc;
 }
+static int32_t engine_protocol_of(int putty_protocol)
+{
+    switch (putty_protocol) {
+      case PROT_RAW:    return PE_PROTO_RAW;
+      case PROT_TELNET: return PE_PROTO_TELNET;
+      case PROT_RLOGIN: return PE_PROTO_RLOGIN;
+      case PROT_SSH:    return PE_PROTO_SSH;
+      case PROT_SERIAL: return PE_PROTO_SERIAL;
+      case PROT_SUPDUP: return PE_PROTO_SUPDUP;
+    }
+    return PE_PROTO_OTHER;
+}
+
+PE_API int32_t pe_session_get_endpoint(pe_session *s, pe_session_endpoint *out)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!out || out->size < (int32_t)sizeof(*out))
+        return PE_ERR_FAILED;
+    if (!session_is_live(s) || s->pending_close)
+        return PE_ERR_STATE;
+
+    int putty_protocol = conf_get_int(s->conf, CONF_protocol);
+    const char *host = putty_protocol == PROT_SERIAL ? conf_get_str(s->conf, CONF_serline) : conf_get_str(s->conf, CONF_host);
+    const Filename *key = conf_get_filename(s->conf, CONF_keyfile);
+    out->protocol = engine_protocol_of(putty_protocol);
+    out->port = conf_get_int(s->conf, CONF_port);
+    snprintf(out->host, sizeof(out->host), "%s", host ? host : "");
+    /* The user name is "ambiguous" (the ANSI code page or UTF-8: conf_get_str asserts on it); say which, then make it UTF-8. */
+    bool user_is_utf8 = false;
+    const char *user = conf_get_str_ambi(s->conf, CONF_username, &user_is_utf8);
+    char *user_utf8 = pe_text_to_utf8(user ? user : "", user_is_utf8);
+    snprintf(out->user_name, sizeof(out->user_name), "%s", user_utf8);
+    sfree(user_utf8);
+    snprintf(out->key_file, sizeof(out->key_file), "%s", key ? filename_to_str(key) : "");
+    return PE_OK;
+}
+
 PE_API int32_t pe_session_summary(const char *name, char *host, int32_t host_size, int32_t *protocol, int32_t *port)
 {
     int32_t rc = pe_check_engine_thread();
@@ -706,15 +745,7 @@ PE_API int32_t pe_session_summary(const char *name, char *host, int32_t host_siz
     int putty_protocol = conf_get_int(conf, CONF_protocol);
     const char *text = putty_protocol == PROT_SERIAL ? conf_get_str(conf, CONF_serline) : conf_get_str(conf, CONF_host);
     snprintf(host, (size_t)host_size, "%s", text ? text : "");
-    switch (putty_protocol) {
-      case PROT_RAW:    *protocol = PE_PROTO_RAW; break;
-      case PROT_TELNET: *protocol = PE_PROTO_TELNET; break;
-      case PROT_RLOGIN: *protocol = PE_PROTO_RLOGIN; break;
-      case PROT_SSH:    *protocol = PE_PROTO_SSH; break;
-      case PROT_SERIAL: *protocol = PE_PROTO_SERIAL; break;
-      case PROT_SUPDUP: *protocol = PE_PROTO_SUPDUP; break;
-      default:          *protocol = PE_PROTO_OTHER; break;
-    }
+    *protocol = engine_protocol_of(putty_protocol);
     *port = conf_get_int(conf, CONF_port);
     conf_free(conf);
     return PE_OK;

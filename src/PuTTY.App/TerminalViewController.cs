@@ -230,6 +230,19 @@ internal sealed class TerminalViewController : IDisposable
         Detach();
         session = newSession;
         attached = false;
+
+        // A tab that is not on screen yet (a restored workspace opens the others behind the first one) has no panel size
+        // and so no view, but its server is already talking: give the session its terminal now, at a default size, so that
+        // what arrives is kept and drawn when the view attaches (which fits the terminal to it).
+        try
+        {
+            session.EnableTerminal(80, 24);
+        }
+        catch (InvalidOperationException)
+        {
+            // it has one already
+        }
+
         session.ScrollbarChanged += OnScrollbarChanged;
         session.CursorMoved += OnCursorMoved;
         session.ClipboardWrite += OnClipboardWrite;
