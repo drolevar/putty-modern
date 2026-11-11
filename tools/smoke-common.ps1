@@ -31,7 +31,7 @@ function Attach-Debugger($Process) {
     $log = Join-Path $work 'results\cdb.log'
     Remove-Item $log, (Join-Path $work 'results\crash.dmp') -ErrorAction SilentlyContinue
     $debugger = Start-Process 'C:\debugger\cdb.exe' -PassThru -WindowStyle Hidden -ArgumentList @(
-        '-p', $Process.Id, '-g', '-G', '-y', $symbols, '-logo', $log, '-cf', (Join-Path $PSScriptRoot 'sandbox\cdb-crash-commands.txt'))
+        '-p', $Process.Id, '-G', '-y', $symbols, '-logo', $log, '-cf', (Join-Path $PSScriptRoot 'sandbox\cdb-crash-commands.txt'))
     Start-Sleep -Seconds 4            # attaching and loading symbols before the app does anything interesting
     return $debugger
 }

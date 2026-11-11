@@ -17,6 +17,7 @@ public partial class App : Application
         TestRegistry.ApplyFromEnvironment();
         InitializeComponent();
         AotTypeAnchors.Touch();
+        CrashLog.Install(this);
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

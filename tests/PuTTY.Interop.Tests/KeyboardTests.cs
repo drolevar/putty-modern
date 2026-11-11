@@ -118,6 +118,19 @@ public sealed partial class KeyboardTests
     private static string Text(byte[] bytes) => System.Text.Encoding.Latin1.GetString(bytes);
 
     [TestMethod]
+    public void Clearing_the_keyboard_target_after_the_engine_has_stopped_does_nothing()
+    {
+        // A closing window loses its focus after the app has stopped the engine; the focus event clears the target.
+        // An exception from there ended the whole app (a stowed exception, exit code 0xC000027B).
+        using (var engine = new EngineThread())
+        {
+            engine.Run(() => PuttySession.SetKeyboardTarget(null));
+        }
+
+        PuttySession.SetKeyboardTarget(null);
+    }
+
+    [TestMethod]
     public void Letters_reach_the_server_as_typed_and_shift_makes_capitals()
     {
         using var rig = new Rig();

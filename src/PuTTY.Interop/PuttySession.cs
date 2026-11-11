@@ -492,7 +492,15 @@ public sealed unsafe partial class PuttySession : IDisposable
             native = session.handle;
         }
 
-        PuttyEngine.Check(NativeMethods.SetKeyTarget(native), nameof(SetKeyboardTarget));
+        int result = NativeMethods.SetKeyTarget(native);
+        if (session is null && result == NativeMethods.ErrState)
+        {
+            // The engine is not running (any more): there is no target left to clear. A closing window loses its focus
+            // after the app has stopped the engine, and an exception from that focus event ends the whole process.
+            return;
+        }
+
+        PuttyEngine.Check(result, nameof(SetKeyboardTarget));
     }
 
     /// <summary>True while the connection is up.</summary>

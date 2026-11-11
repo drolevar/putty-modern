@@ -1,8 +1,11 @@
 .echo ==== cdb is attached to PuTTY.App (tools\sandbox\cdb-crash-commands.txt)
-$$ A first-chance access violation is usually handled by somebody; only an unhandled one is a crash.
+* A first-chance access violation is usually handled by somebody; only an unhandled one is a crash.
+* RaiseFailFastException (stowed exception, fast fail) reaches the debugger only as a second-chance event, so those
+* commands are given as -c2 too.
 sxd -c2 ".echo ==== UNHANDLED ACCESS VIOLATION; .ecxr; kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" av
-sxe -c ".echo ==== HEAP CORRUPTION DETECTED; kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" 0xc0000374
-sxe -c ".echo ==== FAST FAIL; kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" 0xc0000409
+sxe -c ".echo ==== HEAP CORRUPTION DETECTED; kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" -c2 ".echo ==== HEAP CORRUPTION DETECTED; kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" 0xc0000374
+sxe -c ".echo ==== STOWED EXCEPTION (a WinRT error left unhandled); kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" -c2 ".echo ==== STOWED EXCEPTION (a WinRT error left unhandled); kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" 0xc000027b
+sxe -c ".echo ==== FAST FAIL; kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" -c2 ".echo ==== FAST FAIL; kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" 0xc0000409
 sxe -c ".echo ==== BREAKPOINT EXCEPTION; kn 80; ~*kn 30; .dump /ma /u C:\spike\work\results\crash.dmp; q" bpe
 bp ntdll!NtTerminateProcess ".echo ==== THE PROCESS ENDS HERE; kn 60; g"
 g
