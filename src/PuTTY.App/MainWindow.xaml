@@ -63,7 +63,10 @@
 
                 <docking:ToolWindowContainer docking:DockSite.RelativeSize="0.2">
                     <docking:ToolWindow Title="Session details" SerializationId="details">
-                        <TextBlock Margin="12" Text="Session details (placeholder)" />
+                        <!-- The open session's name, state and Session settings button are built in code (SessionDetailsController). -->
+                        <UserControl x:Name="DetailsHost"
+                                     HorizontalContentAlignment="Stretch"
+                                     VerticalContentAlignment="Stretch" />
                     </docking:ToolWindow>
                 </docking:ToolWindowContainer>
 

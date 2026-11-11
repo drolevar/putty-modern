@@ -221,6 +221,7 @@ internal sealed partial class SettingsView
 
         var restore = new HyperlinkButton { Content = "Restore defaults", Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetAutomationId(restore, "RestoreDefaults");
+        restore.Visibility = dialog.IsMidSession ? Visibility.Collapsed : Visibility.Visible;     // it loads Default Settings, which a running session cannot
         restore.Click += (_, _) =>
         {
             // PuTTY has no such button: it is the Load of "Default Settings", which is always in the list.
@@ -257,8 +258,9 @@ internal sealed partial class SettingsView
                 FrameworkElement open = Build(control);
                 if (open is Button button)
                 {
-                    button.Content = "Open session";                      // PuTTY says Open
-                    AutomationProperties.SetName(button, "Open session");
+                    string openText = dialog.IsMidSession ? "Apply" : "Open session";      // PuTTY says Open, or Apply on a running session
+                    button.Content = openText;
+                    AutomationProperties.SetName(button, openText);
                     button.MinWidth = 124;
                     // The framework's own primary-button style, which follows the theme and the accent colour. (Not the
                     // accent colour read from the resources: unboxing that boxed WinRT struct throws InvalidCastException

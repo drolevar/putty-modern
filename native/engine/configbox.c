@@ -64,6 +64,9 @@ struct pe_config {
     void *user;
     char *page;                 /* the page the host shows ("Session"), or NULL */
     int focus[2];               /* the control that has the focus, and the one before it; -1 for none */
+    pe_session *session;        /* a box opened on a running session (Change Settings), else NULL */
+    uint64_t session_serial;
+    bool midsession;
     int busy;                   /* handlers and host callbacks currently on the stack */
     bool closing;
     pe_config *next;
@@ -216,6 +219,24 @@ void pe_configs_close_all(void)
     }
 }
 
+static pe_config *config_create(const pe_config_events *events, void *user)
+{
+    pe_config *c = snew(pe_config);
+    memset(c, 0, sizeof(*c));
+    c->events = *events;
+    c->user = user;
+    c->focus[0] = c->focus[1] = -1;
+    return c;
+}
+
+/* Builds the state of every control from the box and makes the dialog known; the box and the Conf must be set. */
+static void config_register(pe_config *c)
+{
+    ctrls_init(c);
+    c->next = live_configs;
+    live_configs = c;
+}
+
 PE_API int32_t pe_config_open(uint32_t flags, const pe_config_events *events, void *user, pe_config **out)
 {
     int32_t rc = pe_check_engine_thread();
@@ -224,12 +245,7 @@ PE_API int32_t pe_config_open(uint32_t flags, const pe_config_events *events, vo
     if (!events || !out)
         return PE_ERR_FAILED;
 
-    pe_config *c = snew(pe_config);
-    memset(c, 0, sizeof(*c));
-        c->events = *events;
-    c->user = user;
-    c->focus[0] = c->focus[1] = -1;
-
+    pe_config *c = config_create(events, user);
     c->conf = conf_new();
     if (flags & PE_OPT_SAVED_DEFAULTS)
         do_defaults(NULL, c->conf);
@@ -238,12 +254,51 @@ PE_API int32_t pe_config_open(uint32_t flags, const pe_config_events *events, vo
 
     c->box = ctrl_new_box();
     setup_config_box(c->box, false, 0, 0);
-    ctrls_init(c);
-
-    c->next = live_configs;
-    live_configs = c;
+    config_register(c);
     *out = c;
     return PE_OK;
+}
+
+/*
+ * PuTTY's Change Settings: the same box on a copy of a running session's settings, with what PuTTY leaves out
+ * mid-session left out (setup_config_box's midsession mode: no host name, no Open; the button says Apply).
+ * pe_config_apply then makes the edited copy the session's.
+ */
+PE_API int32_t pe_config_open_for_session(pe_session *session, const pe_config_events *events, void *user, pe_config **out)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session || !events || !out)
+        return PE_ERR_FAILED;
+
+    Conf *conf = NULL;
+    int protocol = 0, cfginfo = 0;
+    uint64_t serial = 0;
+    rc = pe_session_config_source(session, &conf, &protocol, &cfginfo, &serial);
+    if (rc != PE_OK)
+        return rc;
+
+    pe_config *c = config_create(events, user);
+    c->conf = conf;
+    c->session = session;
+    c->session_serial = serial;
+    c->midsession = true;
+    c->box = ctrl_new_box();
+    setup_config_box(c->box, true, protocol, cfginfo);
+    config_register(c);
+    *out = c;
+    return PE_OK;
+}
+
+PE_API int32_t pe_config_apply(pe_config *c)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!config_is_live(c) || c->closing || !c->midsession)
+        return PE_ERR_STATE;
+    return pe_session_apply_conf(c->session, c->session_serial, c->conf);
 }
 
 /* ----- Describing the controls to the host ----------------------------------------------- */
@@ -961,8 +1016,8 @@ PE_API int32_t pe_config_start_session(pe_config *c, const pe_session_events *ev
     int32_t rc = pe_check_engine_thread();
     if (rc != PE_OK)
         return rc;
-    if (!config_is_live(c) || c->closing)
-        return PE_ERR_STATE;
+    if (!config_is_live(c) || c->closing || c->midsession)
+        return PE_ERR_STATE;                /* a box on a running session changes that session; it does not start one */
     return pe_session_open_conf(c->conf, events, user, out_session);
 }
 

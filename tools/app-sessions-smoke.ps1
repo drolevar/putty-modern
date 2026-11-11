@@ -207,6 +207,34 @@ try {
         Check 'the terminal shows what the first session sends' ($green -gt 30) "($green green pixels)"
         Check 'the document tab is named after the session' ((Ui @('search', 'e2e alpha', '--type', 'TabItem')) -match 'Found [1-9]')
 
+        # --- the details panel, and PuTTY's Change Settings on the running session
+        Check 'the details panel names the open session' ((Ui @('get-property', 'SessionDetailsName')) -match 'e2e alpha')
+        Check 'and says it is connected' ((Ui @('get-property', 'SessionDetailsStatus')) -match 'Connected')
+        [void](Ui @('invoke', 'ChangeSettingsButton'))
+        Check 'Session settings opens PuTTY''s Change Settings, with Apply instead of Open' (Wait-Element 'Apply' 20 @('--type', 'Button'))
+        Check 'the host name is not offered while connected' ((Ui @('search', 'Host Name (or IP address)', '--type', 'Edit')) -match 'Found 0')
+        [void](Ui @('invoke', 'Window', '--type', 'TreeItem'))
+        [void](Wait-Element 'Behaviour' 15 @('--type', 'TreeItem'))
+        [void](Ui @('invoke', 'Behaviour', '--type', 'TreeItem'))
+        Check 'the Behaviour page has the window title' (Wait-Element 'Window title:' 15 @('--type', 'Edit'))
+        [void](Ui @('set-value', 'Window title:', 'Changed by Apply', '--type', 'Edit'))
+        [void](Ui @('invoke', 'Apply', '--type', 'Button'))
+        $closed = $false
+        $deadline = (Get-Date).AddSeconds(15)
+        while ((Get-Date) -lt $deadline -and -not $closed) {
+            $closed = (Ui @('search', 'Apply', '--type', 'Button')) -match 'Found 0'
+            if (-not $closed) { Start-Sleep -Milliseconds 400 }
+        }
+        Check 'Apply closes the settings window' $closed
+        $titled = $false
+        $deadline = (Get-Date).AddSeconds(15)
+        while ((Get-Date) -lt $deadline -and -not $titled) {
+            $titled = (Ui @('list-windows')) -match 'Changed by Apply - PuTTY'
+            if (-not $titled) { Start-Sleep -Milliseconds 400 }
+        }
+        Check 'the running session took the new window title, which PuTTY sets through its own reconfiguration' $titled
+        Check 'and is still connected' ((Ui @('get-property', 'SessionDetailsStatus')) -match 'Connected')
+
         # --- open beta while alpha is connected: the app asks first
         Check 'the session just opened is at the top of RECENT' ((Ui @('search', 'Recent:e2e alpha')) -match 'Found [1-9]')
         Check 'and the workspace file counts the opening' ((Read-Workspace).sessions.'e2e alpha'.openCount -ge 1 -and $null -ne (Read-Workspace).sessions.'e2e alpha'.lastOpened)

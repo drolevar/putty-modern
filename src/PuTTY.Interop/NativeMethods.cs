@@ -55,6 +55,12 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_config_open")]
     internal static unsafe partial int ConfigOpen(uint flags, NativeConfigEvents* events, nint user, out nint config);
 
+    [LibraryImport(Library, EntryPoint = "pe_config_open_for_session")]
+    internal static unsafe partial int ConfigOpenForSession(nint session, NativeConfigEvents* events, nint user, out nint config);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_apply")]
+    internal static partial int ConfigApply(nint config);
+
     [LibraryImport(Library, EntryPoint = "pe_config_describe")]
     internal static partial int ConfigDescribe(nint config);
 

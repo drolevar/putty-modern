@@ -60,6 +60,23 @@ internal sealed partial class SettingsWindow : Window
         handling = true;
         try
         {
+            if (dialog.IsMidSession)
+            {
+                // Change Settings on a running session: Apply passes the edits to it, and the window is done either way.
+                try
+                {
+                    dialog.Apply();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    await SessionInteraction.ShowMessageAsync(Content?.XamlRoot, "The settings could not be applied", ex.Message);
+                }
+
+                finished = true;
+                Close();
+                return;
+            }
+
             bool started = Opened is null || await Opened(dialog);
             if (started)
             {

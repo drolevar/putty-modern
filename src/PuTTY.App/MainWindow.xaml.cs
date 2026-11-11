@@ -13,6 +13,7 @@ public sealed partial class MainWindow : Window
 
     private readonly TerminalViewController terminal;
     private readonly SessionListController sessions;
+    private readonly SessionDetailsController details;
     private SessionInteraction? interaction;
 
     public MainWindow()
@@ -24,6 +25,8 @@ public sealed partial class MainWindow : Window
         sessions.OpenRequested += name => _ = OpenSavedAsync(name);
         sessions.NewRequested += () => OpenSettings(null);
         sessions.EditRequested += name => OpenSettings(name);
+        details = new SessionDetailsController(DetailsHost);
+        details.SettingsRequested += OpenChangeSettings;
         SessionsHost.Loaded += (_, _) =>
         {
             if (App.EngineRunning)
@@ -66,7 +69,7 @@ public sealed partial class MainWindow : Window
         PuttySessionOptions? options = target.UserName is null && target.KeyFile is null
             ? null
             : new PuttySessionOptions { UserName = target.UserName, KeyFile = target.KeyFile };
-        StartSession(() => new PuttySession(target.Host, target.Port, target.Protocol, options), target.Host);
+        StartSession(() => new PuttySession(target.Host, target.Port, target.Protocol, options), target.Host, $"{target.Host}:{target.Port}");
     }
 
     /// <summary>
@@ -125,6 +128,41 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// PuTTY's Change Settings on the open session (the Session settings button of the details panel): the same box,
+    /// without what cannot change while connected, and Apply instead of Open. Apply passes the edits to the session.
+    /// </summary>
+    private void OpenChangeSettings()
+    {
+        if (!App.EngineRunning || terminal.Session is not { IsConnected: true } session)
+        {
+            return;
+        }
+
+        SettingsDialog dialog;
+        try
+        {
+            dialog = SettingsDialog.OpenForSession(session);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the session's settings", ex.Message);
+            return;
+        }
+
+        try
+        {
+            var window = new SettingsWindow(dialog, $"Session settings - {TerminalDocument.Title}");
+            window.Closed += (_, _) => terminal.Focus();
+            window.Activate();
+        }
+        catch (Exception ex)
+        {
+            dialog.Dispose();
+            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the session's settings", ex.ToString());
+        }
+    }
+
     /// <summary>What to call the document: the saved session's name if it has one, else the host.</summary>
     private static string TitleFor(SettingsDialog dialog)
     {
@@ -153,7 +191,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (StartSession(() => PuttySession.OpenSaved(name), name))
+        if (StartSession(() => PuttySession.OpenSaved(name), name, PuttySessions.Describe(name)?.Description))
         {
             sessions.NoteOpened(name);      // it goes to the top of RECENT
         }
@@ -185,7 +223,7 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Starts a session in the terminal; false (after telling the user) if it could not be started.</summary>
-    private bool StartSession(Func<PuttySession> create, string documentTitle)
+    private bool StartSession(Func<PuttySession> create, string documentTitle, string? description = null)
     {
         // The old session goes first: its renderer holds the terminal panel's swap chain.
         interaction?.Dispose();
@@ -201,6 +239,14 @@ public sealed partial class MainWindow : Window
             session.Start();
             terminal.Show(session);
             TerminalDocument.Title = documentTitle;
+            details.Show(documentTitle, description);
+            session.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(terminal.Session, session))
+                {
+                    details.SetConnected(false);
+                }
+            };
             return true;
         }
         catch (InvalidOperationException ex)

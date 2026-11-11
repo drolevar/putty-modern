@@ -135,6 +135,9 @@ public sealed unsafe partial class PuttySession : IDisposable
     private readonly NativeOpener? opener;  // set for a session whose settings come from somewhere else (the settings dialog)
 
     private nint handle;
+
+    /// <summary>The engine's handle, for the settings dialog opened on this session. Throws once the session is disposed.</summary>
+    internal nint NativeHandle => handle != 0 ? handle : throw new ObjectDisposedException(nameof(PuttySession));
     private GCHandle self;          // lets native code find this object again
     private bool started;
     private bool disposed;

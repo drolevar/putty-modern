@@ -512,6 +512,21 @@ typedef struct pe_config_events {
  * on the user's saved "Default Settings". */
 PE_API int32_t pe_config_open(uint32_t flags, const pe_config_events *events, void *user, pe_config **out);
 
+/*
+ * Creates PuTTY's Change Settings dialog on a running session: the same box on a copy of that session's settings,
+ * with what PuTTY leaves out mid-session left out and the default button saying Apply. The user's Apply arrives as
+ * `end` with value 1; the host then calls pe_config_apply. PE_ERR_STATE if the session is gone or closing.
+ * pe_config_start_session does not work on such a dialog.
+ */
+PE_API int32_t pe_config_open_for_session(pe_session *session, const pe_config_events *events, void *user, pe_config **out);
+
+/*
+ * Makes the edited settings of a dialog from pe_config_open_for_session the session's own, and passes them to the
+ * terminal, line discipline, log and backend, as PuTTY's Windows front end does after its Change Settings box.
+ * PE_ERR_STATE if the dialog is not of that kind or its session has gone.
+ */
+PE_API int32_t pe_config_apply(pe_config *config);
+
 /* Reports every group and control through the events, in order. */
 PE_API int32_t pe_config_describe(pe_config *config);
 

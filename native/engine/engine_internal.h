@@ -21,6 +21,15 @@ char *pe_text_from_utf8(const char *utf8, bool want_utf8);
 /* Opens a session from a Conf (copied, so the caller keeps its own): what the settings dialog's Open does. */
 int32_t pe_session_open_conf(Conf *conf, const pe_session_events *events, void *user, pe_session **out_session);
 
+/*
+ * Changing the settings of a running session (session.c; used by configbox.c). _source gives a copy of the
+ * session's Conf to edit and what PuTTY's box needs to know to open mid-session; _apply makes the edited Conf the
+ * session's and passes it on to the terminal, the line discipline, the log and the backend. A session is named by
+ * its pointer and a serial number that is never reused: PE_ERR_STATE if it has gone.
+ */
+int32_t pe_session_config_source(pe_session *s, Conf **conf_copy_out, int *protocol, int *cfginfo, uint64_t *serial);
+int32_t pe_session_apply_conf(pe_session *s, uint64_t serial, Conf *conf);
+
 /* Frees every settings dialog that is still open (configbox.c). Called by pe_shutdown. */
 void pe_configs_close_all(void);
 

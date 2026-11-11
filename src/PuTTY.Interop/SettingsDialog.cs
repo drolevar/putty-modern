@@ -168,6 +168,35 @@ public sealed unsafe class SettingsDialog : IDisposable
         }
     }
 
+    /// <summary>
+    /// PuTTY's Change Settings: the dialog on a copy of a running session's settings, offering what PuTTY offers
+    /// mid-session (no host name; the default button says Apply). <see cref="Apply"/> makes the edits the session's.
+    /// </summary>
+    public static SettingsDialog OpenForSession(PuttySession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var dialog = new SettingsDialog { IsMidSession = true };
+        try
+        {
+            dialog.Start(useSavedDefaults: false, session);
+            return dialog;
+        }
+        catch
+        {
+            dialog.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>True for a dialog opened with <see cref="OpenForSession"/>: it changes a running session and cannot <see cref="CreateSession">start</see> one.</summary>
+    public bool IsMidSession { get; private init; }
+
+    /// <summary>
+    /// Passes the edited settings to the session this dialog was opened on (terminal, line discipline, log and
+    /// connection, as PuTTY does). Call it when <see cref="Ended"/> says true. Throws if the session has gone.
+    /// </summary>
+    public void Apply() => Check(NativeMethods.ConfigApply(Handle), nameof(Apply));
+
     /// <summary>The groups of controls in PuTTY's order; those with the same <see cref="SettingsGroup.Path"/> make up a page.</summary>
     public IReadOnlyList<SettingsGroup> Groups => groups;
 
@@ -200,7 +229,7 @@ public sealed unsafe class SettingsDialog : IDisposable
     /// <summary>The dialog is over: true to go ahead (Open), false when cancelled.</summary>
     public event Action<bool>? Ended;
 
-    private void Start(bool useSavedDefaults)
+    private void Start(bool useSavedDefaults, PuttySession? session = null)
     {
         NativeConfigEvents events = default;
         events.Group = &OnGroup;
@@ -215,7 +244,10 @@ public sealed unsafe class SettingsDialog : IDisposable
         events.End = &OnEnd;
 
         PuttyEngine.Check(
-            NativeMethods.ConfigOpen(useSavedDefaults ? 1u : 0u, &events, GCHandle.ToIntPtr(self), out handle), nameof(Open));
+            session is null
+                ? NativeMethods.ConfigOpen(useSavedDefaults ? 1u : 0u, &events, GCHandle.ToIntPtr(self), out handle)
+                : NativeMethods.ConfigOpenForSession(session.NativeHandle, &events, GCHandle.ToIntPtr(self), out handle),
+            nameof(Open));
         PuttyEngine.Check(NativeMethods.ConfigDescribe(handle), nameof(Open));
         PuttyEngine.Check(NativeMethods.ConfigRefresh(handle), nameof(Open));
     }

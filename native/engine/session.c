@@ -71,6 +71,7 @@ struct pe_session {
     } interaction;
     uint64_t next_interaction_id;
 
+    uint64_t serial;            /* never reused, unlike the address: a dialog that outlives its session must not reach another */
     bool closed_notified;       /* 'closed' is delivered once */
     bool trusted;               /* what the backend last said; applied to the emulator when it exists */
     bool pending_close;         /* closing was requested from inside a callback */
@@ -83,6 +84,7 @@ struct pe_session {
 #define SESSION_FROM_LOGPOLICY(p) container_of(p, pe_session, logpolicy)
 
 static pe_session *live_sessions;
+static uint64_t session_serial_counter;
 
 /* ----- Handle validation ---------------------------------------------------------------
  *
@@ -553,6 +555,7 @@ static int32_t session_start(Conf *conf, const char *host, int port, const Backe
 {
     pe_session *s = snew(pe_session);
     memset(s, 0, sizeof(*s));
+    s->serial = ++session_serial_counter;
     s->seat.vt = &session_seat_vt;
     s->logpolicy.vt = &session_logpolicy_vt;
     s->trusted = true;          /* until a backend says otherwise */
@@ -808,6 +811,59 @@ PE_API int32_t pe_session_confirm_respond(pe_session *s, uint64_t id, int32_t an
                        s->interaction.keystr);
     }
     return interaction_finish(s, SPR_OK);
+}
+
+/* ----- Changing the settings of a running session ---------------------------------------------- */
+
+/*
+ * What the settings box needs to be opened on a running session (configbox.c): a copy of its Conf to edit, the
+ * protocol and the backend's configuration info, which decide what PuTTY's box offers mid-session, and the
+ * session's serial number to check at Apply. windows/window.c does the same at IDM_RECONF.
+ */
+int32_t pe_session_config_source(pe_session *s, Conf **conf_copy_out, int *protocol, int *cfginfo, uint64_t *serial)
+{
+    if (!session_is_live(s) || s->pending_close || !s->backend)
+        return PE_ERR_STATE;
+    Conf *copy = conf_copy(s->conf);
+    if (s->term)
+        term_pre_reconfig(s->term, copy);       /* the current window title, so that leaving the title box alone keeps it */
+    *conf_copy_out = copy;
+    *protocol = conf_get_int(s->conf, CONF_protocol);
+    *cfginfo = backend_cfg_info(s->backend);
+    *serial = s->serial;
+    return PE_OK;
+}
+
+/*
+ * Makes `conf` (the edited copy) the session's settings and tells everything that reads them, in the order
+ * windows/window.c uses. The copy goes INTO s->conf: the line discipline, the key translation and the
+ * emulator's helpers keep pointers to that Conf and read it as they go.
+ */
+int32_t pe_session_apply_conf(pe_session *s, uint64_t serial, Conf *conf)
+{
+    if (!session_is_live(s) || s->serial != serial || s->pending_close)
+        return PE_ERR_STATE;
+
+    int saved_lines_before = conf_get_int(s->conf, CONF_savelines);
+    conf_copy_into(s->conf, conf);
+
+    if (s->logctx)
+        log_reconfig(s->logctx, s->conf);
+    if (s->ldisc) {
+        /* Also flushes the line discipline's edit buffer when local editing has just been turned off. */
+        ldisc_configure(s->ldisc, s->conf);
+        ldisc_echoedit_update(s->ldisc);
+    }
+    if (s->term) {
+        term_reconfig(s->term, s->conf);
+        pe_termwin_use_settings(&s->termwin, s->term, s->conf);
+        if (conf_get_int(s->conf, CONF_savelines) != saved_lines_before)
+            term_size(s->term, s->term->rows, s->term->cols, conf_get_int(s->conf, CONF_savelines));
+        term_invalidate(s->term);       /* colours, cursor style and bold may all have changed */
+    }
+    if (s->backend)
+        backend_reconfig(s->backend, s->conf);
+    return PE_OK;
 }
 
 PE_API int32_t pe_session_enable_terminal(pe_session *s, int32_t columns, int32_t rows)
