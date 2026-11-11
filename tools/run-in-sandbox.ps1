@@ -58,6 +58,16 @@ function Mirror($from, $to) {
 Write-Host 'Staging the app and the scripts ...'
 Mirror $appSource (Join-Path $work 'app')
 Mirror (Join-Path $root 'tools') (Join-Path $work 'tools')
+if ($Smoke -contains 'agent') {
+    # The key Pageant is given: made by a test (the Windows puttygen has no command line), kept under artifacts\agent-keys.
+    $keys = Join-Path $root 'artifacts\agent-keys'
+    if (-not (Test-Path (Join-Path $keys 'agent.ppk'))) {
+        Write-Host 'Making the key for the agent check (dotnet test) ...'
+        & dotnet test --project (Join-Path $root 'tests\PuTTY.Interop.Tests') -c Release --filter 'Name=Writes_the_key_the_agent_smoke_check_uses' | Out-Null
+        if (-not (Test-Path (Join-Path $keys 'agent.ppk'))) { Write-Host 'The key was not made.'; exit 95 }
+    }
+    Mirror $keys (Join-Path $work 'agent-keys')
+}
 $results = Join-Path $work 'results'
 New-Item -ItemType Directory -Force -Path $results | Out-Null
 

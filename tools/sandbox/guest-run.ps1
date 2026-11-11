@@ -45,13 +45,19 @@ if ($Smoke -in 'ssh', 'settings') {
     }
 }
 
-# The check against a real OpenSSH server needs one: install it with winget, and have sshd running.
-if ($Smoke -eq 'openssh') {
+# The checks against a real OpenSSH server need one: install it with winget, and have sshd running. The agent check
+# also needs Pageant, which comes with PuTTY itself.
+if ($Smoke -in 'openssh', 'agent') {
     if (-not (Test-Path 'C:\Program Files\OpenSSH\sshd.exe')) {
         Write-Host 'Installing OpenSSH (client and server) with winget ...'
         & winget install --id Microsoft.OpenSSH.Preview --exact --silent --accept-package-agreements --accept-source-agreements
     }
     if ((Get-Service sshd -ErrorAction SilentlyContinue) -and (Get-Service sshd).Status -ne 'Running') { Start-Service sshd }
+}
+if ($Smoke -eq 'agent' -and -not (Test-Path 'C:\Program Files\PuTTY\pageant.exe')) {
+    Write-Host 'Installing PuTTY (for Pageant) with winget ...'
+    & winget install --id PuTTY.PuTTY --exact --silent --accept-package-agreements --accept-source-agreements
+    if (-not (Test-Path 'C:\Program Files\PuTTY\pageant.exe')) { Write-Host 'FAIL  winget did not install PuTTY'; exit 93 }
 }
 # The check of input through a real IME needs one: Rime Weasel, a text service (TSF) like the Microsoft ones, installable
 # with winget without language packs (the Sandbox's Windows Update cannot add those).
