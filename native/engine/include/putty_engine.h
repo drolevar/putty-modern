@@ -93,7 +93,65 @@ typedef struct pe_session_events {
 
     /* The connection has ended. Delivered once; the session still has to be closed. */
     void (*closed)(void *user);
+
+    /*
+     * The server (or PuTTY itself, for a key passphrase) wants answers: a user name, a password,
+     * a passphrase, or the questions of keyboard-interactive authentication. `id` names this
+     * question; answer it with pe_session_prompt_respond or pe_session_prompt_cancel, from inside
+     * this callback or later (a dialog takes time). `count` may be 0: the text is then only to be
+     * shown, and a respond with no answers is the "OK". prompts[i] is the text of question i and
+     * echo[i] says whether the typed answer may be shown (non-zero) or must be hidden (0).
+     * from_server is non-zero when the questions came from the server rather than from PuTTY. The
+     * strings are valid only during the call. Only one question is open at a time; with no
+     * handler, or while another is open, a question is refused and the connection fails safe.
+     */
+    void (*prompt)(void *user, uint64_t id, const char *name, const char *instruction,
+                   int32_t from_server, int32_t count, const char *const *prompts, const int32_t *echo);
+
+    /*
+     * A question that needs a yes or no: an unknown or changed SSH host key, or a cipher or host key
+     * algorithm below the configured warning threshold (`kind`, PE_CONFIRM_*). The text of the
+     * dialog is given as `count` pieces, each with a type (PE_DIALOG_*) and a string; for a host key
+     * it includes the fingerprints, and says whether the key is new or has changed. host, port and
+     * key_type are empty or 0 when they do not apply. Answer with pe_session_confirm_respond. The
+     * same rules as for `prompt`: one question at a time, answered inside the call or later, and no
+     * handler means no.
+     */
+    void (*confirm)(void *user, uint64_t id, int32_t kind, const char *host, int32_t port,
+                    const char *key_type, int32_t count, const int32_t *types, const char *const *texts);
 } pe_session_events;
+
+#define PE_CONFIRM_HOST_KEY          0   /* unknown or changed host key: accept, connect once, cancel */
+#define PE_CONFIRM_WEAK_CRYPTO       1   /* an algorithm below the warning threshold: yes or no */
+#define PE_CONFIRM_WEAK_CACHED_KEY   2   /* the best cached host key is below the threshold: yes or no */
+
+/* Types of the pieces of a confirmation dialog's text; the same values as PuTTY's SDT_*. */
+#define PE_DIALOG_PARA              0   /* a paragraph */
+#define PE_DIALOG_DISPLAY           1   /* text to show verbatim, such as a fingerprint */
+#define PE_DIALOG_SCARY_HEADING     2   /* a warning headline (a changed host key) */
+#define PE_DIALOG_TITLE             3   /* the title of the dialog */
+#define PE_DIALOG_PROMPT            4   /* the question for a text prompt; a dialog has buttons instead */
+#define PE_DIALOG_BATCH_ABORT       5   /* what a non-interactive run says; not needed in a dialog */
+#define PE_DIALOG_MORE_INFO_KEY     6   /* a label in the "more info" view ... */
+#define PE_DIALOG_MORE_INFO_SHORT   7   /* ... its one-line value ... */
+#define PE_DIALOG_MORE_INFO_BLOB    8   /* ... or its multi-line value */
+
+/* The answers to a confirmation. */
+#define PE_ANSWER_CANCEL        0   /* refuse: the connection is abandoned */
+#define PE_ANSWER_ACCEPT        1   /* yes; for a host key also store it in PuTTY's host key cache */
+#define PE_ANSWER_CONNECT_ONCE  2   /* a host key: yes, this time only. For the other kinds, the same as ACCEPT. */
+
+/*
+ * Optional settings for a session; everything is optional. size is sizeof(pe_session_options),
+ * so the structure can grow. Strings are UTF-8.
+ */
+typedef struct pe_session_options {
+    uint32_t size;
+    const char *username;      /* the SSH user name; NULL or empty lets the server ask (a prompt) */
+    const char *key_file;      /* a PuTTY private key (.ppk) to authenticate with, or NULL */
+    const char *command;       /* a remote command to run instead of a shell, or NULL */
+    int32_t try_agent;         /* Pageant: -1 PuTTY's default (on), 0 off, 1 on */
+} pe_session_options;
 
 /*
  * Opens a connection. The call returns at once; the connection completes asynchronously
@@ -104,6 +162,26 @@ typedef struct pe_session_events {
 PE_API int32_t pe_session_open(const char *host, int32_t port, int32_t protocol,
                                const pe_session_events *events, void *user,
                                pe_session **out_session);
+
+/* As pe_session_open, with settings. `options` may be NULL. */
+PE_API int32_t pe_session_open_ex(const char *host, int32_t port, int32_t protocol,
+                                  const pe_session_options *options,
+                                  const pe_session_events *events, void *user,
+                                  pe_session **out_session);
+
+/*
+ * Answers the question `id` that a `prompt` event raised: one UTF-8 answer per question (count
+ * must match), or none for a text that only needed an OK. PE_ERR_STATE if that question is not
+ * open (already answered, or the session ended), PE_ERR_FAILED for a wrong count.
+ */
+PE_API int32_t pe_session_prompt_respond(pe_session *session, uint64_t id, const char *const *answers,
+                                         int32_t count);
+
+/* Refuses the question `id`: the connection is abandoned, as when a user presses Cancel. */
+PE_API int32_t pe_session_prompt_cancel(pe_session *session, uint64_t id);
+
+/* Answers the question `id` that a `confirm` event raised with one of PE_ANSWER_*. */
+PE_API int32_t pe_session_confirm_respond(pe_session *session, uint64_t id, int32_t answer);
 
 /* Sends bytes to the remote side. PE_ERR_STATE if the session is closed or invalid. */
 PE_API int32_t pe_session_send(pe_session *session, const void *data, uint32_t length);
@@ -290,6 +368,14 @@ typedef struct pe_diag_render_result {
 PE_API int32_t pe_diag_render_text(const wchar_t *font_family, float size_px, const wchar_t *text,
                                    uint32_t fg_rgb, uint32_t bg_rgb, int32_t bold,
                                    pe_diag_render_result *out);
+
+/*
+ * Generates an Ed25519 key, saves it as a PuTTY private key file at `path` (encrypted with
+ * `passphrase` if it is not NULL or empty) and writes the public key as an "ssh-ed25519 AAAA..."
+ * line (NUL-terminated) into `public_line`. For tests of key authentication.
+ */
+PE_API int32_t pe_diag_generate_ed25519_key(const char *path_utf8, const char *passphrase_utf8,
+                                            char *public_line, int32_t capacity);
 
 #ifdef __cplusplus
 }

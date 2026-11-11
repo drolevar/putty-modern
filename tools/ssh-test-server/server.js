@@ -56,11 +56,19 @@ function makeHostKey(options) {
   if (options.hostKeyFile && fs.existsSync(options.hostKeyFile)) {
     return fs.readFileSync(options.hostKeyFile);
   }
-  const generated = options.hostKeyType === 'rsa'
-    ? utils.generateKeyPairSync('rsa', { bits: 2048 })
-    : options.hostKeyType === 'ecdsa'
-      ? utils.generateKeyPairSync('ecdsa', { bits: 256 })
-      : utils.generateKeyPairSync('ed25519');
+  // ssh2 now and then generates a key that its own parser then calls malformed ("Malformed OpenSSH
+  // private key", about one in a few hundred), so a key counts only once it has been parsed back.
+  let generated;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    generated = options.hostKeyType === 'rsa'
+      ? utils.generateKeyPairSync('rsa', { bits: 2048 })
+      : options.hostKeyType === 'ecdsa'
+        ? utils.generateKeyPairSync('ecdsa', { bits: 256 })
+        : utils.generateKeyPairSync('ed25519');
+    if (!(utils.parseKey(generated.private) instanceof Error)) break;
+    generated = null;
+  }
+  if (!generated) throw new Error('could not generate a host key that ssh2 accepts');
   if (options.hostKeyFile) {
     fs.writeFileSync(options.hostKeyFile, generated.private, { mode: 0o600 });
   }

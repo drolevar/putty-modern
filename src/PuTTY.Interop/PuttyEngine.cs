@@ -144,6 +144,18 @@ public static class PuttyEngine
             return new RenderProbe(native.CellWidth, native.CellHeight, ink, native.CornerRgb);
         }
 
+        /// <summary>
+        /// Makes a throwaway Ed25519 key for tests of key authentication: writes a PuTTY private key
+        /// file (.ppk) at <paramref name="path"/>, encrypted if <paramref name="passphrase"/> is given,
+        /// and returns the public key as an <c>ssh-ed25519 AAAA...</c> line. Call it on the engine thread.
+        /// </summary>
+        public static unsafe string GenerateEd25519Key(string path, string? passphrase = null)
+        {
+            byte* buffer = stackalloc byte[512];
+            Check(NativeMethods.DiagGenerateEd25519Key(path, passphrase, buffer, 512), nameof(GenerateEd25519Key));
+            return Marshal.PtrToStringUTF8((nint)buffer) ?? string.Empty;
+        }
+
         /// <summary>Reads the counters; <see cref="Initialize"/> resets them to zero.</summary>
         public static DiagnosticCounters GetCounters()
         {

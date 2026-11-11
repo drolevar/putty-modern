@@ -125,18 +125,19 @@ public sealed class SessionErrorEventArgs(string message, bool isFatal) : EventA
 /// teardown until PuTTY has unwound and stops delivering events at once.
 /// </para>
 /// </remarks>
-public sealed unsafe class PuttySession : IDisposable
+public sealed unsafe partial class PuttySession : IDisposable
 {
     private readonly string host;
     private readonly int port;
     private readonly SessionProtocol protocol;
+    private readonly PuttySessionOptions? options;
 
     private nint handle;
     private GCHandle self;          // lets native code find this object again
     private bool started;
     private bool disposed;
 
-    public PuttySession(string host, int port, SessionProtocol protocol)
+    public PuttySession(string host, int port, SessionProtocol protocol, PuttySessionOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(host);
         ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
@@ -144,6 +145,7 @@ public sealed unsafe class PuttySession : IDisposable
         this.host = host;
         this.port = port;
         this.protocol = protocol;
+        this.options = options;
     }
 
     public event EventHandler<SessionOutputEventArgs>? Output;
@@ -197,9 +199,29 @@ public sealed unsafe class PuttySession : IDisposable
         events.Log = &OnLog;
         events.Error = &OnError;
         events.Closed = &OnClosed;
+        events.Prompt = &OnPrompt;
+        events.Confirm = &OnConfirm;
 
-        int result = NativeMethods.SessionOpen(
-            host, port, (int)protocol, &events, GCHandle.ToIntPtr(self), out nint native);
+        // The settings are UTF-8 copies that only have to live until the engine has read them.
+        NativeSessionOptions native_options = default;
+        native_options.Size = (uint)sizeof(NativeSessionOptions);
+        native_options.TryAgent = options?.TryAgent is { } tryAgent ? (tryAgent ? 1 : 0) : -1;
+        native_options.UserName = (byte*)Marshal.StringToCoTaskMemUTF8(options?.UserName);
+        native_options.KeyFile = (byte*)Marshal.StringToCoTaskMemUTF8(options?.KeyFile);
+        native_options.Command = (byte*)Marshal.StringToCoTaskMemUTF8(options?.Command);
+        int result;
+        nint native;
+        try
+        {
+            result = NativeMethods.SessionOpenEx(
+                host, port, (int)protocol, &native_options, &events, GCHandle.ToIntPtr(self), out native);
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem((nint)native_options.UserName);
+            Marshal.FreeCoTaskMem((nint)native_options.KeyFile);
+            Marshal.FreeCoTaskMem((nint)native_options.Command);
+        }
         if (result < NativeMethods.Ok)
         {
             self.Free();

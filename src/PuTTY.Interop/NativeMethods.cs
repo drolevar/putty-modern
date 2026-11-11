@@ -35,6 +35,20 @@ internal static partial class NativeMethods
     internal static unsafe partial int SessionOpen(
         string host, int port, int protocol, NativeSessionEvents* events, nint user, out nint session);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_open_ex", StringMarshalling = StringMarshalling.Utf8)]
+    internal static unsafe partial int SessionOpenEx(
+        string host, int port, int protocol, NativeSessionOptions* options, NativeSessionEvents* events,
+        nint user, out nint session);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_prompt_respond")]
+    internal static unsafe partial int SessionPromptRespond(nint session, ulong id, byte** answers, int count);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_prompt_cancel")]
+    internal static partial int SessionPromptCancel(nint session, ulong id);
+
+    [LibraryImport(Library, EntryPoint = "pe_session_confirm_respond")]
+    internal static partial int SessionConfirmRespond(nint session, ulong id, int answer);
+
     [LibraryImport(Library, EntryPoint = "pe_session_send")]
     internal static unsafe partial int SessionSend(nint session, byte* data, uint length);
 
@@ -92,6 +106,9 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_diag_raise_warning")]
     internal static partial int DiagRaiseWarning(int kind);
 
+    [LibraryImport(Library, EntryPoint = "pe_diag_generate_ed25519_key", StringMarshalling = StringMarshalling.Utf8)]
+    internal static unsafe partial int DiagGenerateEd25519Key(string path, string? passphrase, byte* publicLine, int capacity);
+
     [LibraryImport(Library, EntryPoint = "pe_diag_render_text", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int DiagRenderText(
         string fontFamily, float sizePx, string text, uint fgRgb, uint bgRgb, int bold, out NativeDiagRenderResult result);
@@ -117,6 +134,19 @@ internal unsafe struct NativeSessionEvents
     public delegate* unmanaged<nint, byte*, void> Log;                 // user, utf8 text
     public delegate* unmanaged<nint, byte*, int, void> Error;          // user, utf8 message, isFatal
     public delegate* unmanaged<nint, void> Closed;                     // user
+    public delegate* unmanaged<nint, ulong, byte*, byte*, int, int, byte**, int*, void> Prompt;   // user, id, name, instruction, fromServer, count, prompts, echo
+    public delegate* unmanaged<nint, ulong, int, byte*, int, byte*, int, int*, byte**, void> Confirm;   // user, id, kind, host, port, keyType, count, types, texts
+}
+
+/// <summary>Mirrors <c>pe_session_options</c>.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeSessionOptions
+{
+    public uint Size;
+    public byte* UserName;
+    public byte* KeyFile;
+    public byte* Command;
+    public int TryAgent;                                               // -1 default, 0 off, 1 on
 }
 
 /// <summary>Mirrors <c>pe_terminal_events</c>.</summary>

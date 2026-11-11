@@ -51,6 +51,25 @@ struct pe_session {
     pe_session_events events;   /* a copy, so the caller's may live on the stack */
     void *user;
 
+    /*
+     * The question the host is answering, if any: a prompt (prompts_t) or a confirmation. PuTTY
+     * asks one at a time. id is 0 while nothing is waiting.
+     */
+    struct {
+        uint64_t id;
+        int kind;                       /* INTERACT_* */
+        prompts_t *prompts;             /* INTERACT_PROMPT: where the answers go */
+        int confirm_kind;               /* INTERACT_CONFIRM: PE_CONFIRM_* */
+        void (*confirm_callback)(void *ctx, SeatPromptResult result);
+        void *confirm_ctx;
+        char *host, *keytype, *keystr;  /* a host key being confirmed: copies, since we answer later */
+        int port;
+        bool in_call;                   /* the host event is running: an answer then is returned, not called back */
+        bool answered;
+        SeatPromptResult result;
+    } interaction;
+    uint64_t next_interaction_id;
+
     bool closed_notified;       /* 'closed' is delivered once */
     bool trusted;               /* what the backend last said; applied to the emulator when it exists */
     bool pending_close;         /* closing was requested from inside a callback */
@@ -190,12 +209,227 @@ static bool session_get_window_pixel_size(Seat *seat, int *x, int *y)
     return true;
 }
 
+/* ----- Questions for the user: prompts and confirmations ----------------------------------
+ *
+ * PuTTY's own GUI asks in modal dialogs and returns the answer from the call. A modern front end
+ * cannot block the UI thread, so the host gets an event, answers whenever it likes, and the
+ * Seat returns SPR_INCOMPLETE meanwhile. The two kinds finish differently, as PuTTY defines them:
+ *
+ *   - confirmations (host key and so on) call a callback(ctx, result) given with the question;
+ *   - prompts_t (passwords and the like) fill in the answers and then queue p->callback; PuTTY
+ *     asks get_userpass_input a second time, and the Seat returns the result it kept in p->spr.
+ *
+ * A host that answers from inside the event gets the cheap path: the answer is simply returned.
+ */
+
+enum { INTERACT_NONE = 0, INTERACT_PROMPT, INTERACT_CONFIRM };
+
+static void interaction_clear(pe_session *s)
+{
+    sfree(s->interaction.host);
+    sfree(s->interaction.keytype);
+    sfree(s->interaction.keystr);
+    memset(&s->interaction, 0, sizeof(s->interaction));
+}
+
+/* Text PuTTY gives us is UTF-8 only when it says so; otherwise it is in the ANSI code page. */
+static char *text_to_utf8(const char *text, bool is_utf8)
+{
+    if (is_utf8 || !text)
+        return dupstr(text ? text : "");
+    int wide_len = MultiByteToWideChar(CP_ACP, 0, text, -1, NULL, 0);
+    if (wide_len <= 0)
+        return dupstr(text);
+    wchar_t *wide = snewn(wide_len, wchar_t);
+    MultiByteToWideChar(CP_ACP, 0, text, -1, wide, wide_len);
+    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wide, -1, NULL, 0, NULL, NULL);
+    char *out = snewn(utf8_len > 0 ? utf8_len : 1, char);
+    if (utf8_len > 0)
+        WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, utf8_len, NULL, NULL);
+    else
+        out[0] = '\0';
+    sfree(wide);
+    return out;
+}
+
+static char *text_from_utf8(const char *utf8, bool want_utf8)
+{
+    if (want_utf8 || !utf8)
+        return dupstr(utf8 ? utf8 : "");
+    int wide_len = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+    if (wide_len <= 0)
+        return dupstr(utf8);
+    wchar_t *wide = snewn(wide_len, wchar_t);
+    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, wide_len);
+    int acp_len = WideCharToMultiByte(CP_ACP, 0, wide, -1, NULL, 0, NULL, NULL);
+    char *out = snewn(acp_len > 0 ? acp_len : 1, char);
+    if (acp_len > 0)
+        WideCharToMultiByte(CP_ACP, 0, wide, -1, out, acp_len, NULL, NULL);
+    else
+        out[0] = '\0';
+    sfree(wide);
+    return out;
+}
+
+static SeatPromptResult session_get_userpass_input(Seat *seat, prompts_t *p)
+{
+    pe_session *s = SESSION_FROM_SEAT(seat);
+
+    /* The second call, after the host answered and p->callback ran: the final result. */
+    if (p->data == s) {
+        p->data = NULL;
+        return p->spr;
+    }
+
+    if (s->pending_close || !s->events.prompt)
+        return SPR_USER_ABORT;                  /* nobody to ask: fail safe, as the nullseat does */
+    if (s->interaction.id != 0)
+        return SPR_SW_ABORT("Another question is already waiting for an answer");
+
+    size_t count = p->n_prompts;
+    const char **texts = snewn(count ? count : 1, const char *);
+    int32_t *echo = snewn(count ? count : 1, int32_t);
+    for (size_t i = 0; i < count; i++) {
+        texts[i] = text_to_utf8(p->prompts[i]->prompt, p->utf8);
+        echo[i] = p->prompts[i]->echo ? 1 : 0;
+    }
+    char *name = text_to_utf8(p->name, p->utf8);
+    char *instruction = text_to_utf8(p->instruction, p->utf8);
+
+    s->interaction.id = ++s->next_interaction_id;
+    s->interaction.kind = INTERACT_PROMPT;
+    s->interaction.prompts = p;
+    s->interaction.in_call = true;
+    s->interaction.answered = false;
+    HOST_EVENT(s, prompt, s->interaction.id, name, instruction, p->from_server ? 1 : 0,
+               (int32_t)count, texts, echo);
+    s->interaction.in_call = false;
+
+    for (size_t i = 0; i < count; i++)
+        sfree((char *)texts[i]);
+    sfree(texts);
+    sfree(echo);
+    sfree(name);
+    sfree(instruction);
+
+    if (s->interaction.answered) {              /* answered from inside the event */
+        SeatPromptResult result = s->interaction.result;
+        interaction_clear(s);
+        return result;
+    }
+    if (s->pending_close) {                     /* the host closed the session instead of answering */
+        interaction_clear(s);
+        return SPR_USER_ABORT;
+    }
+    return SPR_INCOMPLETE;
+}
+
+static SeatPromptResult session_confirm(pe_session *s, int kind, const char *host, int port,
+                                        const char *keytype, char *keystr, SeatDialogText *text,
+                                        void (*callback)(void *ctx, SeatPromptResult result), void *ctx)
+{
+    if (s->pending_close || !s->events.confirm)
+        return SPR_USER_ABORT;
+    if (s->interaction.id != 0)
+        return SPR_SW_ABORT("Another question is already waiting for an answer");
+
+    size_t count = text ? text->nitems : 0;
+    int32_t *types = snewn(count ? count : 1, int32_t);
+    const char **texts = snewn(count ? count : 1, const char *);
+    for (size_t i = 0; i < count; i++) {
+        types[i] = (int32_t)text->items[i].type;
+        texts[i] = text->items[i].text ? text->items[i].text : "";
+    }
+
+    s->interaction.id = ++s->next_interaction_id;
+    s->interaction.kind = INTERACT_CONFIRM;
+    s->interaction.confirm_kind = kind;
+    s->interaction.confirm_callback = callback;
+    s->interaction.confirm_ctx = ctx;
+    s->interaction.host = dupstr(host ? host : "");
+    s->interaction.keytype = dupstr(keytype ? keytype : "");
+    s->interaction.keystr = keystr ? dupstr(keystr) : NULL;
+    s->interaction.port = port;
+    s->interaction.in_call = true;
+    s->interaction.answered = false;
+    HOST_EVENT(s, confirm, s->interaction.id, (int32_t)kind, s->interaction.host, (int32_t)port,
+               s->interaction.keytype, (int32_t)count, types, texts);
+    s->interaction.in_call = false;
+
+    sfree(types);
+    sfree(texts);
+
+    if (s->interaction.answered) {
+        SeatPromptResult result = s->interaction.result;
+        interaction_clear(s);
+        return result;
+    }
+    if (s->pending_close) {
+        interaction_clear(s);
+        return SPR_USER_ABORT;
+    }
+    return SPR_INCOMPLETE;
+}
+
+static SeatPromptResult session_confirm_ssh_host_key(
+    Seat *seat, const char *host, int port, const char *keytype, char *keystr, SeatDialogText *text,
+    HelpCtx helpctx, void (*callback)(void *ctx, SeatPromptResult result), void *ctx)
+{
+    (void)helpctx;
+    return session_confirm(SESSION_FROM_SEAT(seat), PE_CONFIRM_HOST_KEY, host, port, keytype, keystr, text,
+                           callback, ctx);
+}
+
+static SeatPromptResult session_confirm_weak_crypto_primitive(
+    Seat *seat, SeatDialogText *text, void (*callback)(void *ctx, SeatPromptResult result), void *ctx)
+{
+    return session_confirm(SESSION_FROM_SEAT(seat), PE_CONFIRM_WEAK_CRYPTO, NULL, 0, NULL, NULL, text,
+                           callback, ctx);
+}
+
+static SeatPromptResult session_confirm_weak_cached_hostkey(
+    Seat *seat, SeatDialogText *text, void (*callback)(void *ctx, SeatPromptResult result), void *ctx)
+{
+    return session_confirm(SESSION_FROM_SEAT(seat), PE_CONFIRM_WEAK_CACHED_KEY, NULL, 0, NULL, NULL, text,
+                           callback, ctx);
+}
+
+/* The words ssh/common.c puts into the host key text for the buttons; the same as PuTTY's own GUI. */
+static const SeatDialogPromptDescriptions *session_prompt_descriptions(Seat *seat)
+{
+    (void)seat;
+    static const SeatDialogPromptDescriptions descs = {
+        .hk_accept_action = "press \"Accept\"",
+        .hk_connect_once_action = "press \"Connect Once\"",
+        .hk_cancel_action = "press \"Cancel\"",
+        .hk_cancel_action_Participle = "Pressing \"Cancel\"",
+        .weak_accept_action = "press \"Yes\"",
+        .weak_cancel_action = "press \"No\"",
+    };
+    return &descs;
+}
+
+/* Banners and keyboard-interactive text from the server go through the emulator's own filter. */
+static StripCtrlChars *session_stripctrl_new(Seat *seat, BinarySink *bs_out, SeatInteractionContext sic)
+{
+    (void)sic;
+    pe_session *s = SESSION_FROM_SEAT(seat);
+    if (!s->term)
+        return NULL;
+    return stripctrl_new_term(bs_out, false, 0, s->term);
+}
+
+static bool session_interactive(Seat *seat)
+{
+    return SESSION_FROM_SEAT(seat)->events.prompt != NULL;
+}
+
 static const SeatVtable session_seat_vt = {
     .output = session_output,
     .eof = nullseat_eof,                    /* remote EOF: if they close, so do we */
     .sent = nullseat_sent,
     .banner = session_banner,
-    .get_userpass_input = nullseat_get_userpass_input,  /* aborts safely: prompts are slice 3 */
+    .get_userpass_input = session_get_userpass_input,
     .notify_session_started = nullseat_notify_session_started,
     .notify_remote_exit = nullseat_notify_remote_exit,
     .notify_remote_disconnect = session_notify_remote_disconnect,
@@ -204,21 +438,21 @@ static const SeatVtable session_seat_vt = {
     .update_specials_menu = nullseat_update_specials_menu,
     .get_ttymode = nullseat_get_ttymode,
     .set_busy_status = nullseat_set_busy_status,
-    .confirm_ssh_host_key = nullseat_confirm_ssh_host_key,                  /* aborts: slice 3 */
-    .confirm_weak_crypto_primitive = nullseat_confirm_weak_crypto_primitive,
-    .confirm_weak_cached_hostkey = nullseat_confirm_weak_cached_hostkey,
-    .prompt_descriptions = nullseat_prompt_descriptions,
+    .confirm_ssh_host_key = session_confirm_ssh_host_key,
+    .confirm_weak_crypto_primitive = session_confirm_weak_crypto_primitive,
+    .confirm_weak_cached_hostkey = session_confirm_weak_cached_hostkey,
+    .prompt_descriptions = session_prompt_descriptions,
     .is_utf8 = nullseat_is_always_utf8,
     .echoedit_update = nullseat_echoedit_update,
     .get_display = nullseat_get_display,
     .get_windowid = nullseat_get_windowid,
     .get_window_pixel_size = session_get_window_pixel_size,
-    .stripctrl_new = nullseat_stripctrl_new,
+    .stripctrl_new = session_stripctrl_new,
     .set_trust_status = session_set_trust_status,
     .can_set_trust_status = nullseat_can_set_trust_status_yes,
     .has_mixed_input_stream = nullseat_has_mixed_input_stream_no,
-    .verbose = nullseat_verbose_no,
-    .interactive = nullseat_interactive_no, /* no prompting yet */
+    .verbose = nullseat_verbose_yes,        /* the host shows the event log, so let PuTTY be chatty */
+    .interactive = session_interactive,
     .get_cursor_position = session_get_cursor_position,
 };
 
@@ -281,6 +515,7 @@ static void session_unlink(pe_session *session)
 static void session_destroy(pe_session *s)
 {
     session_unlink(s);
+    interaction_clear(s);       /* a question nobody answered: the backend owns what it points to */
     pe_keys_session_closing(&s->keys);
     /* The order window.c uses: line discipline, then detach the emulator, then the backend. */
     if (s->ldisc)
@@ -308,6 +543,14 @@ PE_API int32_t pe_session_open(const char *host, int32_t port, int32_t protocol,
                                const pe_session_events *events, void *user,
                                pe_session **out_session)
 {
+    return pe_session_open_ex(host, port, protocol, NULL, events, user, out_session);
+}
+
+PE_API int32_t pe_session_open_ex(const char *host, int32_t port, int32_t protocol,
+                                  const pe_session_options *options,
+                                  const pe_session_events *events, void *user,
+                                  pe_session **out_session)
+{
     int32_t rc = pe_check_engine_thread();
     if (rc != PE_OK)
         return rc;
@@ -334,6 +577,19 @@ PE_API int32_t pe_session_open(const char *host, int32_t port, int32_t protocol,
     conf_set_str(s->conf, CONF_host, host);
     conf_set_int(s->conf, CONF_port, port);
     conf_set_int(s->conf, CONF_protocol, putty_protocol);
+    if (options && options->size >= sizeof(*options)) {
+        if (options->username && *options->username)
+            conf_set_str(s->conf, CONF_username, options->username);
+        if (options->key_file && *options->key_file) {
+            Filename *key = filename_from_str(options->key_file);
+            conf_set_filename(s->conf, CONF_keyfile, key);
+            filename_free(key);
+        }
+        if (options->command && *options->command)
+            conf_set_str(s->conf, CONF_remote_cmd, options->command);
+        if (options->try_agent >= 0)
+            conf_set_bool(s->conf, CONF_tryagent, options->try_agent != 0);
+    }
 
     s->logctx = log_init(&s->logpolicy, s->conf);
 
@@ -354,6 +610,97 @@ PE_API int32_t pe_session_open(const char *host, int32_t port, int32_t protocol,
 
     *out_session = s;
     return PE_OK;
+}
+
+/* ----- Answering questions -------------------------------------------------------------- */
+
+/*
+ * Delivers the answer. Inside the host event the answer is only recorded and the Seat method returns
+ * it; later, the callback PuTTY gave us is called (a prompt is queued as a top-level callback, as
+ * PuTTY's own seats do, and returns the result on PuTTY's second call).
+ */
+static int32_t interaction_finish(pe_session *s, SeatPromptResult result)
+{
+    if (s->interaction.in_call) {
+        s->interaction.answered = true;
+        s->interaction.result = result;
+        return PE_OK;
+    }
+
+    if (s->interaction.kind == INTERACT_PROMPT) {
+        prompts_t *p = s->interaction.prompts;
+        interaction_clear(s);
+        p->spr = result;
+        p->data = s;
+        queue_toplevel_callback(p->callback, p->callback_ctx);
+    } else {
+        void (*callback)(void *, SeatPromptResult) = s->interaction.confirm_callback;
+        void *ctx = s->interaction.confirm_ctx;
+        interaction_clear(s);
+        s->callback_depth++;    /* PuTTY runs on from here and may raise events; the host may close us then */
+        callback(ctx, result);
+        s->callback_depth--;
+    }
+    return PE_OK;
+}
+
+static bool interaction_matches(const pe_session *s, uint64_t id, int kind)
+{
+    return s->interaction.id != 0 && s->interaction.id == id && s->interaction.kind == kind;
+}
+
+PE_API int32_t pe_session_prompt_respond(pe_session *s, uint64_t id, const char *const *answers, int32_t count)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || s->pending_close || !interaction_matches(s, id, INTERACT_PROMPT))
+        return PE_ERR_STATE;
+    prompts_t *p = s->interaction.prompts;
+    if (count < 0 || (size_t)count != p->n_prompts || (count > 0 && !answers))
+        return PE_ERR_FAILED;
+    for (int32_t i = 0; i < count; i++) {
+        if (!answers[i])
+            return PE_ERR_FAILED;
+    }
+    for (int32_t i = 0; i < count; i++) {
+        char *converted = text_from_utf8(answers[i], p->utf8);
+        prompt_set_result(p->prompts[i], converted);
+        smemclr(converted, strlen(converted));      /* it may be a password */
+        sfree(converted);
+    }
+    return interaction_finish(s, SPR_OK);
+}
+
+PE_API int32_t pe_session_prompt_cancel(pe_session *s, uint64_t id)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || s->pending_close || !interaction_matches(s, id, INTERACT_PROMPT))
+        return PE_ERR_STATE;
+    return interaction_finish(s, SPR_USER_ABORT);
+}
+
+PE_API int32_t pe_session_confirm_respond(pe_session *s, uint64_t id, int32_t answer)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || s->pending_close || !interaction_matches(s, id, INTERACT_CONFIRM))
+        return PE_ERR_STATE;
+    if (answer != PE_ANSWER_CANCEL && answer != PE_ANSWER_ACCEPT && answer != PE_ANSWER_CONNECT_ONCE)
+        return PE_ERR_FAILED;
+
+    if (answer == PE_ANSWER_CANCEL)
+        return interaction_finish(s, SPR_USER_ABORT);
+    if (answer == PE_ANSWER_ACCEPT && s->interaction.confirm_kind == PE_CONFIRM_HOST_KEY &&
+        s->interaction.keystr) {
+        /* "Accept" remembers the key, as the Accept button does in PuTTY's own dialog. */
+        store_host_key(&s->seat, s->interaction.host, s->interaction.port, s->interaction.keytype,
+                       s->interaction.keystr);
+    }
+    return interaction_finish(s, SPR_OK);
 }
 
 PE_API int32_t pe_session_enable_terminal(pe_session *s, int32_t columns, int32_t rows)

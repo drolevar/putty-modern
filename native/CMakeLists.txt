@@ -47,7 +47,7 @@ option(PUTTY_ENGINE_FULL
 # (windows/dialog.c, controls.c, jump-list.c, ...) alongside the portable terminal code,
 # and the linker would silently satisfy the dlg_* functions from it. The portable files
 # are compiled directly instead (PUTTY_CORE_SOURCES below).
-set(PUTTY_LIBS guimisc eventloop sshclient otherbackends settings network crypto utils)
+set(PUTTY_LIBS guimisc eventloop sshclient otherbackends settings network keygen crypto utils)
 
 include(ExternalProject)
 
@@ -93,7 +93,7 @@ set(PUTTY_CORE_SOURCES
   stubs/no-printing.c              # PuTTY's own stub: printing is out of scope
   windows/no-jump-list.c)          # PuTTY's own stub: no taskbar jump list yet
 
-set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/termwin.c engine/render.cpp engine/core_refs.c)
+set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/termwin.c engine/render.cpp engine/diag_keys.c engine/core_refs.c)
 
 if(PUTTY_ENGINE_FULL)
   # The config-box description. Needs the dlg_* functions and show_ca_config_box (slice 4).
