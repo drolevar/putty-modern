@@ -39,6 +39,37 @@ public sealed class SavedSessionTests
     }
 
     [TestMethod]
+    public void A_saved_session_is_described_by_its_host_port_and_protocol_for_the_list()
+    {
+        using var registry = new RegistrySandbox();
+        registry.WriteSession("web", "10.20.0.12", 2222, "ssh");
+        registry.WriteSession("old box", "legacy.example", 23, "telnet");
+        registry.WriteSession("bench", "", 0, "serial", more: ("SerialLine", "COM3"));
+        using var engine = new EngineThread();
+        string before = registry.Snapshot();
+
+        SavedSessionSummary? web = engine.Run(() => PuttySessions.Describe("web"));
+        SavedSessionSummary? old = engine.Run(() => PuttySessions.Describe("old box"));
+        SavedSessionSummary? bench = engine.Run(() => PuttySessions.Describe("bench"));
+
+        Assert.AreEqual(new SavedSessionSummary("10.20.0.12", 2222, SavedSessionProtocol.Ssh), web);
+        Assert.AreEqual("10.20.0.12 · SSH", web!.Description);
+        Assert.AreEqual("legacy.example · Telnet", old!.Description);
+        Assert.AreEqual(SavedSessionProtocol.Serial, bench!.Protocol);
+        Assert.AreEqual("COM3", bench.Host, "a serial session is described by its line");
+        Assert.AreEqual(before, registry.Snapshot(), "describing a session only reads the storage");
+    }
+
+    [TestMethod]
+    public void Describing_a_session_that_is_not_saved_gives_null()
+    {
+        using var registry = new RegistrySandbox();
+        using var engine = new EngineThread();
+
+        Assert.IsNull(engine.Run(() => PuttySessions.Describe("no such session")));
+    }
+
+    [TestMethod]
     public void A_saved_session_opens_with_its_own_host_port_and_protocol()
     {
         using var registry = new RegistrySandbox();

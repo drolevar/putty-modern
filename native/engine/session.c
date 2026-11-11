@@ -664,6 +664,36 @@ int32_t pe_session_open_conf(Conf *conf, const pe_session_events *events, void *
     sfree(host);
     return rc;
 }
+PE_API int32_t pe_session_summary(const char *name, char *host, int32_t host_size, int32_t *protocol, int32_t *port)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!name || !host || host_size < 1 || !protocol || !port)
+        return PE_ERR_FAILED;
+
+    Conf *conf = conf_new();
+    if (!load_settings(name, conf)) {
+        conf_free(conf);
+        return PE_ERR_FAILED;
+    }
+    int putty_protocol = conf_get_int(conf, CONF_protocol);
+    const char *text = putty_protocol == PROT_SERIAL ? conf_get_str(conf, CONF_serline) : conf_get_str(conf, CONF_host);
+    snprintf(host, (size_t)host_size, "%s", text ? text : "");
+    switch (putty_protocol) {
+      case PROT_RAW:    *protocol = PE_PROTO_RAW; break;
+      case PROT_TELNET: *protocol = PE_PROTO_TELNET; break;
+      case PROT_RLOGIN: *protocol = PE_PROTO_RLOGIN; break;
+      case PROT_SSH:    *protocol = PE_PROTO_SSH; break;
+      case PROT_SERIAL: *protocol = PE_PROTO_SERIAL; break;
+      case PROT_SUPDUP: *protocol = PE_PROTO_SUPDUP; break;
+      default:          *protocol = PE_PROTO_OTHER; break;
+    }
+    *port = conf_get_int(conf, CONF_port);
+    conf_free(conf);
+    return PE_OK;
+}
+
 PE_API int32_t pe_sessions_enumerate(pe_name_fn callback, void *user)
 {
     int32_t rc = pe_check_engine_thread();

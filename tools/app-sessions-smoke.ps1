@@ -33,10 +33,10 @@ function Check($name, $ok, $detail = '') {
 }
 function Clean($lines) { ($lines | ForEach-Object { "$_" -replace ($esc + '\[[0-9;]*m'), '' }) -join "`n" }
 function Ui { param([string[]] $UiArgs) Clean (& winapp ui @UiArgs -a PuTTY.App 2>&1) }
-function Wait-Element($selector, $seconds = 30) {
+function Wait-Element($selector, $seconds = 30, [string[]] $Extra = @()) {
     $deadline = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $deadline) {
-        if ((Ui @('search', $selector)) -match 'Found [1-9]') { return $true }
+        if ((Ui (@('search', $selector) + $Extra)) -match 'Found [1-9]') { return $true }
         Start-Sleep -Milliseconds 400
     }
     return $false
@@ -93,6 +93,21 @@ Save-Session 'Default Settings' 22
 $realSessions = 'HKCU:\Software\SimonTatham\PuTTY\Sessions'
 $realBefore = if (Test-Path $realSessions) { (Get-ChildItem $realSessions | Measure-Object).Count } else { 0 }
 
+# The panel's folders and recents are the application's own file; the test hook moves it under %TEMP%\PuttyModernTests
+# (TestRegistry.cs). It starts with one folder ("Team", holding alpha) and beta opened yesterday.
+$workspaceDir = Join-Path $env:TEMP "PuttyModernTests\$($scratch.Split('\')[-1])"
+$workspaceFile = Join-Path $workspaceDir 'workspace.json'
+New-Item -ItemType Directory -Force -Path $workspaceDir | Out-Null
+$yesterday = (Get-Date).AddDays(-1).ToString('o')
+@"
+{ "version": 1,
+  "folders": [ { "id": "f1", "name": "Team" } ],
+  "sessions": { "e2e alpha": { "folderId": "f1" }, "e2e beta": { "lastOpened": "$yesterday", "openCount": 1 } } }
+"@ | Set-Content -Path $workspaceFile -Encoding UTF8
+function Read-Workspace { Get-Content $workspaceFile -Raw | ConvertFrom-Json }
+$realWorkspace = Join-Path $env:APPDATA 'PuTTY Modern\workspace.json'
+$realWorkspaceBefore = if (Test-Path $realWorkspace) { (Get-Item $realWorkspace).LastWriteTimeUtc.Ticks } else { 0 }
+
 New-Item -ItemType Directory -Force -Path (Split-Path $Screenshot) | Out-Null
 $app = $null
 try {
@@ -105,8 +120,80 @@ try {
     Check '"Default Settings" is not offered as a session' ((Ui @('search', 'Default Settings')) -match 'Found 0')
     Check 'the panel says how many there are' ((Ui @('search', '2 saved sessions')) -match 'Found [1-9]')
 
+    # --- the tree: folders and sessions from the workspace file, the host under each name, RECENT
+    $listing = Ui @('inspect', '--depth', '14')
+    Check 'a folder from the workspace file holds its session, and the other session is at the top' ($listing -match 'Folder:Team[\s\S]*Session:e2e alpha[\s\S]*Session:e2e beta')
+    Check 'the host is shown under a session name' ((Ui @('search', '127.0.0.1')) -match 'Found [2-9]')
+    Check 'RECENT lists the session opened lately' ((Ui @('search', 'Recent:e2e beta')) -match 'Found [1-9]')
+    Check 'and says when' ((Ui @('search', 'Yesterday')) -match 'Found [1-9]')
+
+    # --- a folder closes and opens (its chevron is a button)
+    [void](Ui @('invoke', 'Toggle:Team'))
+    Start-Sleep -Milliseconds 800
+    Check 'closing a folder hides its sessions' ((Ui @('search', 'Session:e2e alpha')) -match 'Found 0')
+    [void](Ui @('invoke', 'Toggle:Team'))
+    Start-Sleep -Milliseconds 800
+    Check 'opening it shows them again' ((Ui @('search', 'Session:e2e alpha')) -match 'Found [1-9]')
+
+    # --- a new folder from the plus button; a name that exists is refused inside the dialog
+    function New-Folder($name) {
+        [void](Ui @('invoke', 'AddToSessionsButton'))
+        if (-not (Wait-Element 'New folder...' 10 @('--type', 'MenuItem'))) { return $false }
+        [void](Ui @('invoke', 'New folder...', '--type', 'MenuItem'))
+        if (-not (Wait-Element 'FolderNameBox' 10)) { return $false }
+        [void](Ui @('set-value', 'FolderNameBox', $name))
+        [void](Ui @('invoke', 'Create', '--type', 'Button'))
+        return $true
+    }
+    Check 'the plus offers a new folder and a dialog asks for its name' (New-Folder 'Lab')
+    Check 'the new folder appears in the tree' (Wait-Element 'Folder:Lab' 10)
+    Check 'and is saved in the workspace file' (@((Read-Workspace).folders | ForEach-Object name) -contains 'Lab')
+    [void](New-Folder 'lab')
+    Check 'the same name in another case is refused in the dialog, which stays open' (Wait-Element 'There is already a folder' 10)
+    [void](Ui @('invoke', 'Cancel', '--type', 'Button'))
+    Start-Sleep -Milliseconds 800
+    Check 'the refused name changed nothing' (@((Read-Workspace).folders).Count -eq 2)
+
+    # --- a session moves into a folder through its right-click menu
+    [void](Ui @('click', 'Session:e2e beta', '--right'))
+    Check 'a right click on a session opens its menu' (Wait-Element 'Move to folder' 10 @('--type', 'MenuItem'))
+    [void](Ui @('invoke', 'Move to folder', '--type', 'MenuItem'))
+    Check 'the menu lists the folders' (Wait-Element 'Lab' 10 @('--type', 'MenuItem'))
+    [void](Ui @('invoke', 'Lab', '--type', 'MenuItem'))
+    Start-Sleep -Milliseconds 1000
+    $labId = (@((Read-Workspace).folders) | Where-Object name -eq 'Lab').id
+    Check 'the session is in the folder, in the workspace file' ((Read-Workspace).sessions.'e2e beta'.folderId -eq $labId)
+    Check 'and the tree shows it under the folder' ((Ui @('inspect', '--depth', '14')) -match 'Folder:Lab[\s\S]*Session:e2e beta')
+
+    # --- rename the folder, then search flattens the tree
+    [void](Ui @('click', 'Folder:Lab', '--right'))
+    Check 'a right click on a folder opens its menu' (Wait-Element 'Rename...' 10 @('--type', 'MenuItem'))
+    [void](Ui @('invoke', 'Rename...', '--type', 'MenuItem'))
+    [void](Wait-Element 'FolderNameBox' 10)
+    [void](Ui @('set-value', 'FolderNameBox', 'Lab2'))
+    [void](Ui @('invoke', 'Rename', '--type', 'Button'))
+    Check 'the folder has its new name' (Wait-Element 'Folder:Lab2' 10)
+    Check 'in the workspace file too' (@((Read-Workspace).folders | ForEach-Object name) -contains 'Lab2')
+    [void](Ui @('set-value', 'SessionSearch', 'beta'))
+    Start-Sleep -Milliseconds 1000
+    Check 'searching shows the matching session' ((Ui @('search', 'Session:e2e beta')) -match 'Found [1-9]')
+    Check 'and no folders' ((Ui @('search', 'Folder:Team')) -match 'Found 0')
+    [void](Ui @('set-value', 'SessionSearch', ' '))      # winapp refuses an empty value; the panel trims the text
+    Start-Sleep -Milliseconds 1000
+    Check 'clearing the search brings the tree back' ((Ui @('search', 'Folder:Team')) -match 'Found [1-9]')
+
+    # --- deleting a folder moves what is in it up; no session is lost
+    [void](Ui @('click', 'Folder:Lab2', '--right'))
+    [void](Wait-Element 'Delete folder' 10 @('--type', 'MenuItem'))
+    [void](Ui @('invoke', 'Delete folder', '--type', 'MenuItem'))
+    Check 'deleting a folder asks first' (Wait-Element 'No saved session is deleted' 10)
+    [void](Ui @('invoke', 'Delete folder', '--type', 'Button'))
+    Start-Sleep -Milliseconds 1000
+    Check 'the folder is gone' ((Ui @('search', 'Folder:Lab2')) -match 'Found 0')
+    Check 'its session is at the top again, in the file and on screen' ($null -eq (Read-Workspace).sessions.'e2e beta'.folderId -and (Ui @('search', 'Session:e2e beta')) -match 'Found [1-9]')
+
     # --- open alpha: select it, press Open
-    [void](Ui @('invoke', 'e2e alpha'))
+    [void](Ui @('invoke', 'Session:e2e alpha'))
     [void](Ui @('invoke', 'OpenSessionButton'))
     $accept = $alpha.AcceptTcpClientAsync()
     Check 'opening a saved session connects to its saved host and port' ($accept.Wait(20000))
@@ -121,7 +208,10 @@ try {
         Check 'the document tab is named after the session' ((Ui @('search', 'e2e alpha', '--type', 'TabItem')) -match 'Found [1-9]')
 
         # --- open beta while alpha is connected: the app asks first
-        [void](Ui @('invoke', 'e2e beta'))
+        Check 'the session just opened is at the top of RECENT' ((Ui @('search', 'Recent:e2e alpha')) -match 'Found [1-9]')
+        Check 'and the workspace file counts the opening' ((Read-Workspace).sessions.'e2e alpha'.openCount -ge 1 -and $null -ne (Read-Workspace).sessions.'e2e alpha'.lastOpened)
+
+        [void](Ui @('invoke', 'Session:e2e beta'))
         [void](Ui @('invoke', 'OpenSessionButton'))
         Check 'opening a second session while one is connected asks first' (Wait-Element 'Close and open' 15)
         [void](Ui @('invoke', 'Close and open'))
@@ -161,6 +251,9 @@ finally {
     $alpha.Stop(); $beta.Stop()
     $realAfter = if (Test-Path $realSessions) { (Get-ChildItem $realSessions | Measure-Object).Count } else { 0 }
     Check "the user's real PuTTY sessions were not touched" ($realBefore -eq $realAfter) "($realBefore before, $realAfter after)"
+    $realWorkspaceAfter = if (Test-Path $realWorkspace) { (Get-Item $realWorkspace).LastWriteTimeUtc.Ticks } else { 0 }
+    Check "the user's real workspace file was not touched" ($realWorkspaceBefore -eq $realWorkspaceAfter)
+    Remove-Item -Path $workspaceDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "HKCU:\Software\PuttyModernTests\$($scratch.Split('\')[-1])" -Recurse -Force -ErrorAction SilentlyContinue
 }
 exit $failures

@@ -153,7 +153,10 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        StartSession(() => PuttySession.OpenSaved(name), name);
+        if (StartSession(() => PuttySession.OpenSaved(name), name))
+        {
+            sessions.NoteOpened(name);      // it goes to the top of RECENT
+        }
     }
 
     /// <summary>
@@ -181,7 +184,8 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void StartSession(Func<PuttySession> create, string documentTitle)
+    /// <summary>Starts a session in the terminal; false (after telling the user) if it could not be started.</summary>
+    private bool StartSession(Func<PuttySession> create, string documentTitle)
     {
         // The old session goes first: its renderer holds the terminal panel's swap chain.
         interaction?.Dispose();
@@ -197,6 +201,7 @@ public sealed partial class MainWindow : Window
             session.Start();
             terminal.Show(session);
             TerminalDocument.Title = documentTitle;
+            return true;
         }
         catch (InvalidOperationException ex)
         {
@@ -204,6 +209,7 @@ public sealed partial class MainWindow : Window
             interaction?.Dispose();
             interaction = null;
             _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not connect", ex.Message);
+            return false;
         }
     }
 }

@@ -41,6 +41,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PuTTY.Interop\PuTTY.Interop.csproj" />
+    <ProjectReference Include="..\PuTTY.Sessions\PuTTY.Sessions.csproj" />
   </ItemGroup>
 
   <!-- NativeAOT and the docking library (Beads putty-modern-sqm, solved): the library gets some WinUI

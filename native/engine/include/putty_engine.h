@@ -72,6 +72,11 @@ typedef struct pe_session pe_session;
 #define PE_PROTO_TELNET  1
 #define PE_PROTO_RLOGIN  2
 #define PE_PROTO_SSH     3
+/* Only ever reported by pe_session_summary (a saved session can be Serial or SUPDUP; the engine does not open
+ * those through pe_session_open_ex, but pe_session_open_saved opens a saved one of any protocol). */
+#define PE_PROTO_SERIAL  4
+#define PE_PROTO_SUPDUP  5
+#define PE_PROTO_OTHER   6
 
 /*
  * What the engine reports about a session. Every callback runs on the engine thread, with
@@ -194,6 +199,13 @@ typedef void (*pe_name_fn)(void *user, const char *name);
  * user saved one. Returns how many there were (0 for none), or a negative error code.
  */
 PE_API int32_t pe_sessions_enumerate(pe_name_fn callback, void *user);
+
+/*
+ * What a saved session connects to, for the list: the host name (the serial line for a Serial session) as
+ * UTF-8 into `host` (at most host_size-1 bytes, always terminated), the port, and the protocol as a PE_PROTO_*
+ * value. The storage is only read. PE_ERR_FAILED if there is no such session.
+ */
+PE_API int32_t pe_session_summary(const char *name, char *host, int32_t host_size, int32_t *protocol, int32_t *port);
 
 /*
  * Answers the question `id` that a `prompt` event raised: one UTF-8 answer per question (count

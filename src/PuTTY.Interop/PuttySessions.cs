@@ -33,6 +33,25 @@ public static unsafe class PuttySessions
         return names;
     }
 
+    /// <summary>
+    /// Where a saved session connects to, for showing in a list: its host (the line, for a Serial session), port
+    /// and protocol. Null if there is no such session. The storage is only read. Call it on the engine thread.
+    /// </summary>
+    public static SavedSessionSummary? Describe(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        const int Capacity = 512;
+        byte* host = stackalloc byte[Capacity];
+        int rc = NativeMethods.SessionSummary(name, host, Capacity, out int protocol, out int port);
+        if (rc == NativeMethods.ErrFailed)
+        {
+            return null;
+        }
+
+        PuttyEngine.Check(rc, nameof(Describe));
+        return new SavedSessionSummary(Marshal.PtrToStringUTF8((nint)host) ?? string.Empty, port, (SavedSessionProtocol)protocol);
+    }
+
     [UnmanagedCallersOnly]
     private static void OnName(nint user, byte* name)
     {

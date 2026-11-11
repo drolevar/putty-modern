@@ -47,6 +47,9 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_sessions_enumerate")]
     internal static unsafe partial int SessionsEnumerate(delegate* unmanaged<nint, byte*, void> callback, nint user);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_summary", StringMarshalling = StringMarshalling.Utf8)]
+    internal static unsafe partial int SessionSummary(string name, byte* host, int hostSize, out int protocol, out int port);
+
     // ----- The settings dialog -----
 
     [LibraryImport(Library, EntryPoint = "pe_config_open")]

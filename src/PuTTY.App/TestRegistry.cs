@@ -8,7 +8,9 @@ namespace PuTTY.App;
 /// <c>HKEY_CURRENT_USER</c> is pointed at that key for the whole process, so PuTTY's storage (saved
 /// sessions, the host key cache) is a scratch copy a script prepared and the user's real PuTTY settings are
 /// neither read nor written. Anything outside that prefix is ignored, so the variable cannot be used to
-/// redirect the app elsewhere.
+/// redirect the app elsewhere. The same switch moves the application's own workspace file (folders and recents
+/// of the Sessions panel) to <c>%TEMP%\PuttyModernTests\&lt;the key's last name&gt;\workspace.json</c>, so a test never
+/// touches the user's <c>%APPDATA%\PuTTY Modern</c>.
 /// </summary>
 internal static partial class TestRegistry
 {
@@ -16,6 +18,9 @@ internal static partial class TestRegistry
     private const string AllowedPrefix = @"Software\PuttyModernTests\";
     private static readonly nint HkeyCurrentUser = unchecked((nint)(int)0x80000001);   // sign-extended, as predefined handles are
     private const int KeyAllAccess = 0xF003F;
+
+    /// <summary>Where the workspace file lives when the test hook is active; null in normal use.</summary>
+    public static string? WorkspaceFileOverride { get; private set; }
 
     public static void ApplyFromEnvironment()
     {
@@ -32,6 +37,7 @@ internal static partial class TestRegistry
 
         // The key stays open for the life of the process, which is the point of an override.
         RegOverridePredefKey(HkeyCurrentUser, key);
+        WorkspaceFileOverride = Path.Combine(Path.GetTempPath(), "PuttyModernTests", root[AllowedPrefix.Length..].Replace('\\', '_'), "workspace.json");
     }
 
     [LibraryImport("advapi32.dll", StringMarshalling = StringMarshalling.Utf16)]
