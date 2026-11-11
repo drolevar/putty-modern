@@ -15,6 +15,7 @@ internal sealed class LoopbackServer : IDisposable
     private readonly List<byte> received = [];
     private readonly Lock gate = new();
     private readonly bool echo;
+    private int hungUp;
 
     public LoopbackServer(bool echo = false)
     {
@@ -33,6 +34,18 @@ internal sealed class LoopbackServer : IDisposable
             lock (gate)
             {
                 return [.. received];
+            }
+        }
+    }
+
+    /// <summary>How many clients have closed their end (the server read the end of the stream or an error).</summary>
+    public int HungUpCount
+    {
+        get
+        {
+            lock (gate)
+            {
+                return hungUp;
             }
         }
     }
@@ -134,6 +147,11 @@ internal sealed class LoopbackServer : IDisposable
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException or InvalidOperationException)
         {
             // The connection was closed.
+        }
+
+        lock (gate)
+        {
+            hungUp++;
         }
     }
 }

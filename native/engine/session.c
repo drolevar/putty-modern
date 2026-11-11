@@ -1531,6 +1531,70 @@ static void deferred_destroy(void *ctx)
         session_destroy(s);
 }
 
+/*
+ * Ends the connection and keeps everything else: the emulator with its screen and scrollback, the renderer, the
+ * Conf. This is what windows/window.c's close_session does when the connection is over (line discipline, then the
+ * backend), and then the host hears Closed, once. The session can no longer send anything; Reconnect makes a new
+ * session from a copy of its Conf (pe_session_open_like), which needs this one still open.
+ */
+static void session_disconnect_now(pe_session *s)
+{
+    if (!s->backend)
+        return;
+    interaction_clear(s);           /* a question still open belongs to the backend that is going */
+    if (s->ldisc) {
+        ldisc_free(s->ldisc);
+        s->ldisc = NULL;
+    }
+    if (s->term)
+        term_provide_backend(s->term, NULL);
+    s->keys.backend = NULL;
+    if (s->backend->interactor)
+        interactor_return_seat(s->backend->interactor);     /* see session_destroy */
+    backend_free(s->backend);
+    s->backend = NULL;
+    notify_closed_once(s);
+}
+
+/* A disconnect that was asked for from inside one of the session's own callbacks. The serial number, not only the
+ * address, says which session: it may be gone by now and its address given to another. */
+struct disconnect_request {
+    pe_session *session;
+    uint64_t serial;
+};
+
+static void deferred_disconnect(void *ctx)
+{
+    struct disconnect_request *request = (struct disconnect_request *)ctx;
+    pe_session *s = request->session;
+    if (session_is_live(s) && s->serial == request->serial && !s->pending_close)
+        session_disconnect_now(s);
+    sfree(request);
+}
+
+PE_API int32_t pe_session_disconnect(pe_session *session)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(session) || session->pending_close)
+        return PE_ERR_STATE;
+    if (!session->backend)
+        return PE_OK;               /* already over */
+
+    if (session->callback_depth > 0) {
+        /* PuTTY may be inside the backend (raw_closing, for one): let it unwind first, as pe_session_close does. */
+        struct disconnect_request *request = snew(struct disconnect_request);
+        request->session = session;
+        request->serial = session->serial;
+        queue_toplevel_callback(deferred_disconnect, request);
+        return PE_OK;
+    }
+
+    session_disconnect_now(session);
+    return PE_OK;
+}
+
 PE_API int32_t pe_session_close(pe_session *session)
 {
     int32_t rc = pe_check_engine_thread();

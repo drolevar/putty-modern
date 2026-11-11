@@ -21,6 +21,7 @@ internal sealed class SessionDetailsController
     public const string SettingsId = "ChangeSettingsButton";
     public const string ReconnectId = "ReconnectButton";
     public const string DuplicateId = "DuplicateButton";
+    public const string DisconnectId = "DisconnectButton";
     public const string CopyFingerprintId = "CopyFingerprintButton";
     public const string NameId = "SessionDetailsName";
     public const string StatusId = "SessionDetailsStatus";
@@ -35,6 +36,7 @@ internal sealed class SessionDetailsController
     private readonly Button settings = new();
     private readonly Button reconnect = new();
     private readonly Button duplicate = new();
+    private readonly Button disconnect = new();
     private readonly Button copyFingerprint = new();
     private readonly StackPanel connection = new() { Spacing = 6 };
     private readonly TextBlock host = new();
@@ -109,6 +111,13 @@ internal sealed class SessionDetailsController
         AutomationProperties.SetAutomationId(duplicate, DuplicateId);
         AutomationProperties.SetName(duplicate, "Duplicate session");
 
+        disconnect.Content = "Disconnect";
+        disconnect.HorizontalAlignment = HorizontalAlignment.Stretch;
+        disconnect.Margin = new Thickness(0, 8, 0, 0);
+        disconnect.Click += (_, _) => DisconnectRequested?.Invoke();
+        AutomationProperties.SetAutomationId(disconnect, DisconnectId);
+        AutomationProperties.SetName(disconnect, "Disconnect");
+
         var stack = new StackPanel { Margin = new Thickness(16), Spacing = 2 };
         stack.Children.Add(name);
         stack.Children.Add(where);
@@ -117,6 +126,7 @@ internal sealed class SessionDetailsController
         stack.Children.Add(secure);
         stack.Children.Add(settings);
         stack.Children.Add(duplicate);
+        stack.Children.Add(disconnect);
         stack.Children.Add(reconnect);
         var scroll = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         host.Content = scroll;
@@ -128,6 +138,9 @@ internal sealed class SessionDetailsController
 
     /// <summary>The user pressed Reconnect (enabled once the connection has ended).</summary>
     public event Action? ReconnectRequested;
+
+    /// <summary>The user pressed Disconnect: the connection ends, the tab and its screen stay (enabled while connected).</summary>
+    public event Action? DisconnectRequested;
 
     /// <summary>The user pressed Duplicate session: another tab with a copy of this session's settings.</summary>
     public event Action? DuplicateRequested;
@@ -148,6 +161,7 @@ internal sealed class SessionDetailsController
         status.Text = connected ? "Connected" : "Not connected";
         settings.IsEnabled = connected && hasSession;       // PuTTY's Change Settings needs a running backend
         reconnect.IsEnabled = !connected && hasSession;     // there is nothing to reconnect while connected
+        disconnect.IsEnabled = connected && hasSession;     // and nothing to disconnect once it is over
         duplicate.IsEnabled = hasSession;
     }
 
@@ -202,6 +216,7 @@ internal sealed class SessionDetailsController
         hasSession = false;
         settings.IsEnabled = false;
         reconnect.IsEnabled = false;
+        disconnect.IsEnabled = false;
         duplicate.IsEnabled = false;
         connection.Visibility = Visibility.Collapsed;
         secure.Visibility = Visibility.Collapsed;

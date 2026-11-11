@@ -259,6 +259,14 @@ PE_API int32_t pe_session_is_connected(pe_session *session);
 PE_API int32_t pe_session_close(pe_session *session);
 
 /*
+ * Ends the connection but keeps the session: its terminal with the screen and the scrollback stays, the host hears
+ * `closed` (once), and nothing more can be sent. For a Disconnect command that leaves the tab as it is; Reconnect is
+ * pe_session_open_like on this session, which must still be open then. Does nothing, and succeeds, when the
+ * connection is over already. From inside one of the session's own events it takes effect a moment later.
+ */
+PE_API int32_t pe_session_disconnect(pe_session *session);
+
+/*
  * Gives the session a terminal emulator with the given size in character cells. From then on
  * the remote side's output goes to the emulator instead of the host's `output` callback, and
  * keyboard input (see pe_set_key_target) goes through PuTTY's key translation and line

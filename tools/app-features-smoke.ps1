@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
   End-to-end check of PuTTY features beyond a plain connection, in the real app: session logging (the question about a
-  log file that exists already: append, overwrite, or no logging).
+  log file that exists already: append, overwrite, or no logging) and Disconnect (the connection ends, the tab and its
+  screen stay, Reconnect brings it back).
 
 .DESCRIPTION
   Run it in Windows Sandbox with tools\run-in-sandbox.ps1 -Smoke features. The user's real PuTTY settings are neither
@@ -37,6 +38,36 @@ function Wait-Element($selector, $seconds = 30, [string[]] $Extra = @()) {
     }
     return $false
 }
+Add-Type -AssemblyName System.Drawing
+Add-Type -TypeDefinition @'
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+public static class FeaturesSmokeNative
+{
+    public static int CountColour(string path, int r, int g, int b)
+    {
+        using (var bmp = new Bitmap(path))
+        {
+            var data = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                int count = 0;
+                byte[] row = new byte[data.Stride];
+                for (int y = 0; y < bmp.Height; y++)
+                {
+                    Marshal.Copy(System.IntPtr.Add(data.Scan0, y * data.Stride), row, 0, data.Stride);
+                    for (int x = 0; x < bmp.Width; x++)
+                        if (row[x * 4 + 2] == r && row[x * 4 + 1] == g && row[x * 4] == b) count++;
+                }
+                return count;
+            }
+            finally { bmp.UnlockBits(data); }
+        }
+    }
+}
+'@ -ReferencedAssemblies System.Drawing
+function Is-Closed($client) { $client.Client.Poll(500000, [System.Net.Sockets.SelectMode]::SelectRead) -and $client.Client.Available -eq 0 }
 function Open-Session($name) {
     [void](Ui @('invoke', "Session:$name"))
     for ($i = 0; $i -lt 20; $i++) {
@@ -93,6 +124,8 @@ $append = New-Listener; $overwrite = New-Listener; $off = New-Listener
 Save-Session 'e2e log append' $append.LocalEndpoint.Port @{ LogType = 2; LogFileName = $logAppend; LogFileClash = -1; LogHeader = 0 }
 Save-Session 'e2e log overwrite' $overwrite.LocalEndpoint.Port @{ LogType = 2; LogFileName = $logOverwrite; LogFileClash = -1; LogHeader = 0 }
 Save-Session 'e2e log off' $off.LocalEndpoint.Port @{ LogType = 2; LogFileName = $logOff; LogFileClash = -1; LogHeader = 0 }
+$disc = New-Listener
+Save-Session 'e2e disconnect' $disc.LocalEndpoint.Port
 
 $app = $null
 try {
@@ -132,11 +165,33 @@ try {
     Start-Sleep -Seconds 1
     Check 'and the file is left as it was' ((Read-Shared $logOff) -eq "OLD OFF CONTENT`r`n")
     & winapp ui screenshot -a PuTTY.App --output $Screenshot 2>&1 | Out-Null
+
+    # --- Disconnect: the connection ends, the tab and its screen stay, Reconnect brings it back
+    $accepted = $disc.AcceptTcpClientAsync()
+    Open-Session 'e2e disconnect'
+    Check 'the session to disconnect connects' ($accepted.Wait(20000))
+    Send-Text $accepted ("$esc[32mDISCONNECT ME$esc[0m")
+    Start-Sleep -Seconds 2
+    $before = $Screenshot -replace '\.png$', '-connected.png'
+    & winapp ui screenshot -a PuTTY.App --output $before 2>&1 | Out-Null
+    $greenBefore = [FeaturesSmokeNative]::CountColour($before, 0, 187, 0)
+    Check 'its text is on the screen' ($greenBefore -gt 30) "($greenBefore green pixels)"
+    [void](Ui @('invoke', 'DisconnectButton'))
+    Check 'Disconnect ends the connection (the server sees it close)' (Is-Closed $accepted.Result)
+    Check 'the panel says it is not connected' ((Ui @('get-property', 'SessionDetailsStatus')) -match 'Not connected')
+    Start-Sleep -Seconds 1
+    $after = $Screenshot -replace '\.png$', '-disconnected.png'
+    & winapp ui screenshot -a PuTTY.App --output $after 2>&1 | Out-Null
+    $greenAfter = [FeaturesSmokeNative]::CountColour($after, 0, 187, 0)
+    Check 'the tab keeps its screen' ($greenAfter -gt 30) "($greenAfter green pixels)"
+    $accepted = $disc.AcceptTcpClientAsync()
+    [void](Ui @('invoke', 'ReconnectButton'))
+    Check 'Reconnect connects again' ($accepted.Wait(20000))
 }
 finally {
     $env:PUTTYMODERN_TEST_REGISTRY_ROOT = $null
     if ($app -and -not $app.HasExited) { $app.Kill() }
-    $append.Stop(); $overwrite.Stop(); $off.Stop()
+    $append.Stop(); $overwrite.Stop(); $off.Stop(); $disc.Stop()
     Remove-Item -Path $workDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "HKCU:\Software\PuttyModernTests\$leaf" -Recurse -Force -ErrorAction SilentlyContinue
 }

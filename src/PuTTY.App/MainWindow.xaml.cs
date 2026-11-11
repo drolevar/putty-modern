@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window
         details.SettingsRequested += OpenChangeSettings;
         details.ReconnectRequested += Reconnect;
         details.DuplicateRequested += Duplicate;
+        details.DisconnectRequested += Disconnect;
         log = new ConnectionLogController(LogHost);
         status = new StatusBarController(StatusBarHost);
         SessionsHost.Loaded += (_, _) =>
@@ -527,6 +528,26 @@ public sealed partial class MainWindow : Window
     /// is started while the ended one is still there to copy from; then the old one goes, which frees the terminal panel
     /// for the new one's view.
     /// </summary>
+    /// <summary>Ends the active tab's connection and leaves the tab, with its screen, as it is; Reconnect can bring it back.</summary>
+    private void Disconnect()
+    {
+        if (active is not { Connected: true } tab)
+        {
+            return;
+        }
+
+        try
+        {
+            tab.Session.Disconnect();       // raises Closed, which updates the panel, the log and the status bar
+        }
+        catch (InvalidOperationException ex)
+        {
+            _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not disconnect", ex.Message);
+        }
+
+        tab.Terminal.Focus();
+    }
+
     private void Reconnect()
     {
         if (!App.EngineRunning || active is not { Connected: false } tab)

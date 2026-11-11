@@ -429,6 +429,17 @@ public sealed unsafe partial class PuttySession : IDisposable
         return new SettingsFont(System.Text.Encoding.UTF8.GetString(bytes, 0, length), height, bold != 0, 0);
     }
 
+    /// <summary>
+    /// Ends the connection and keeps the session: its terminal, with the screen and the scrollback, stays and can be
+    /// <see cref="Clone"/>d for a reconnect. <see cref="Closed"/> is raised (once) and nothing more can be sent. Does nothing
+    /// when the connection is over already. Called from inside one of the session's own events it takes effect a moment later.
+    /// </summary>
+    public void Disconnect()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        PuttyEngine.Check(NativeMethods.SessionDisconnect(handle), nameof(Disconnect));
+    }
+
     /// <summary>A different font or size. The terminal is refitted to the surface.</summary>
     public void SetFont(string fontFamily, float fontSizePixels)
     {
