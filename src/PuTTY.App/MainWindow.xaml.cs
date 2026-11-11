@@ -14,12 +14,14 @@ public sealed partial class MainWindow : Window
 
     private readonly SessionListController sessions;
     private readonly SessionDetailsController details;
-
+    private readonly ConnectionLogController log;
+    private readonly StatusBarController status;
     // One tab per open session. The welcome document (TerminalDocument, with the engine status) is closed when the first opens.
     private readonly List<SessionTab> tabs = [];
     private readonly Dictionary<DocumentWindow, SessionTab> tabOf = [];
     private SessionTab? active;
     private int tabCounter;
+    private const char MiddleDot = (char)0xB7;      // the dot of "host . protocol" in a tabs description
     private bool welcomeClosed;
 
     public MainWindow()
@@ -34,6 +36,8 @@ public sealed partial class MainWindow : Window
         details.SettingsRequested += OpenChangeSettings;
         details.ReconnectRequested += Reconnect;
         details.DuplicateRequested += Duplicate;
+        log = new ConnectionLogController(LogHost);
+        status = new StatusBarController(StatusBarHost);
         SessionsHost.Loaded += (_, _) =>
         {
             if (App.EngineRunning)
@@ -63,6 +67,7 @@ public sealed partial class MainWindow : Window
                 }
 
                 tab.Dispose();      // the tab was closed: its session ends
+                UpdateStatus();
                 if (wasActive)
                 {
                     // The docking library shows the neighbouring tab, and may say so before or after this event: look once it has settled.
@@ -244,6 +249,7 @@ public sealed partial class MainWindow : Window
             var document = new DocumentWindow { Title = title, Content = host, SerializationId = $"doc.session.{++tabCounter}" };
             interaction = new SessionInteraction(session, () => DockSite.XamlRoot, terminal.Focus);
             var tab = new SessionTab(document, host, terminal, session, interaction, title, description);
+            terminal.Resized += () => { if (ReferenceEquals(active, tab)) { UpdateStatus(); } };
             Wire(tab, session);
             session.Start();
 
@@ -269,6 +275,17 @@ public sealed partial class MainWindow : Window
     /// <summary>What a tab does with its session's events: the server's title for the title bar, and the end of the connection.</summary>
     private void Wire(SessionTab tab, PuttySession session)
     {
+        // The connection log: PuTTY's own event log lines and errors, with the tab's name. Subscribed before Start, so the
+        // first lines ("Connecting to ...") are there too.
+        session.Log += (_, e) => log.Add(tab.Title, e.Text);
+        session.Error += (_, e) => log.Add(tab.Title, e.Message, error: true);
+        session.CursorMoved += (_, e) =>
+        {
+            if (ReferenceEquals(active, tab) && ReferenceEquals(tab.Session, session))
+            {
+                status.SetCursor((e.Y / Math.Max(1, e.Height)) + 1, (e.X / Math.Max(1, e.Width)) + 1);
+            }
+        };
         session.TitleChanged += (_, e) =>
         {
             if (!ReferenceEquals(tab.Session, session))
@@ -291,11 +308,30 @@ public sealed partial class MainWindow : Window
             }
 
             tab.Connected = false;
+            log.Add(tab.Title, "Connection closed");
             if (ReferenceEquals(active, tab))
             {
                 details.SetConnected(false);
             }
+
+            UpdateStatus();
         };
+    }
+
+    /// <summary>The status bar: how many sessions are connected, and what the active one is.</summary>
+    private void UpdateStatus()
+    {
+        status.SetSessions(tabs.Count(t => t.Connected));
+        if (active is { } tab)
+        {
+            string? protocol = tab.Description is { } d && d.Contains(MiddleDot) ? d[(d.LastIndexOf(MiddleDot) + 1)..].Trim() : null;
+            TerminalGeometry? geometry = tab.Terminal.Geometry;
+            status.SetActive(protocol, geometry?.Columns, geometry?.Rows);
+        }
+        else
+        {
+            status.ClearActive();
+        }
     }
 
     /// <summary>Another tab with a copy of the active session's settings (everything, including what Change Settings altered).</summary>
@@ -332,6 +368,7 @@ public sealed partial class MainWindow : Window
             tab.Replace(fresh, interaction);
             tab.Terminal.Show(fresh);
             details.SetConnected(true);
+            UpdateStatus();
         }
         catch (InvalidOperationException ex)
         {
@@ -363,6 +400,7 @@ public sealed partial class MainWindow : Window
         details.Show(tab.Title, tab.Description);
         details.SetConnected(tab.Connected);
         Title = tab.WindowTitle;
+        UpdateStatus();
         tab.Terminal.Focus();
     }
 

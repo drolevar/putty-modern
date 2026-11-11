@@ -14,6 +14,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <TitleBar x:Name="AppTitleBar" Title="PuTTY">
@@ -55,7 +56,10 @@
 
                     <docking:ToolWindowContainer docking:DockSite.RelativeSize="0.25">
                         <docking:ToolWindow Title="Connection log" SerializationId="log">
-                            <TextBlock Margin="12" Text="Connection log (placeholder)" />
+                            <!-- The log of every session's connection is built in code (ConnectionLogController). -->
+                            <UserControl x:Name="LogHost"
+                                         HorizontalContentAlignment="Stretch"
+                                         VerticalContentAlignment="Stretch" />
                         </docking:ToolWindow>
                     </docking:ToolWindowContainer>
 
@@ -72,5 +76,8 @@
 
             </docking:SplitContainer>
         </docking:DockSite>
+
+        <!-- Built in code (StatusBarController). -->
+        <UserControl x:Name="StatusBarHost" Grid.Row="2" HorizontalContentAlignment="Stretch" />
     </Grid>
 </Window>

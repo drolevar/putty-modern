@@ -212,6 +212,9 @@ internal sealed class TerminalViewController : IDisposable
         }
     }
 
+    /// <summary>The terminal's size in cells may have changed (the view was resized, or its first size came).</summary>
+    public event Action? Resized;
+
     /// <summary>The session shown, or null.</summary>
     public PuttySession? Session => session;
 
@@ -278,6 +281,7 @@ internal sealed class TerminalViewController : IDisposable
                 fontFamily = family;
                 attached = true;
                 UpdateKeyTarget();
+                Resized?.Invoke();
                 return;
             }
             catch (InvalidOperationException) when (family != FontFamilies[^1])
@@ -309,6 +313,8 @@ internal sealed class TerminalViewController : IDisposable
                 // The DPI scale may have changed, which changes the size of a font in pixels.
                 session.SetFont(fontFamily, FontSizeDips * (float)panel.CompositionScaleX);
             }
+
+            Resized?.Invoke();
         }
     }
 

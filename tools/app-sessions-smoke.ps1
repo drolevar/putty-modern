@@ -209,6 +209,9 @@ try {
 
         # --- the details panel, and PuTTY's Change Settings on the running session
         Check 'the details panel names the open session' ((Ui @('get-property', 'SessionDetailsName')) -match 'e2e alpha')
+        # --- the connection log and the status bar
+        Check 'the connection log has PuTTY''s own line for the session, with its name' (Wait-Element 'e2e alpha Connecting to' 15)
+        Check 'the status bar counts the connected session' (Wait-Element '1 active session' 10)
         Check 'and says it is connected' ((Ui @('get-property', 'SessionDetailsStatus')) -match 'Connected')
         [void](Ui @('invoke', 'ChangeSettingsButton'))
         Check 'Session settings opens PuTTY''s Change Settings, with Apply instead of Open' (Wait-Element 'Apply' 20 @('--type', 'Button'))
@@ -247,6 +250,11 @@ try {
         Check 'the second session connects' ($acceptBeta.Wait(20000))
         Check 'opening a second session while one is connected does not ask anything' ((Ui @('search', 'Close and open')) -match 'Found 0')
         Check 'there is a tab for each session' ((Wait-Element 'e2e beta' 15 @('--type', 'TabItem')) -and (Ui @('search', 'e2e alpha', '--type', 'TabItem')) -match 'Found [1-9]')
+        Check 'the status bar counts both' (Wait-Element '2 active sessions' 10)
+        Check 'the log has the lines of both sessions' ((Wait-Element 'e2e beta Connecting to' 10) -and (Ui @('search', 'e2e alpha Connecting to')) -match 'Found [1-9]')
+        [void](Ui @('invoke', 'ConnectionLogClear'))
+        Start-Sleep -Milliseconds 800
+        Check 'Clear empties the log' ((Ui @('search', 'Connecting to')) -match 'Found 0')
         if ($acceptBeta.IsCompleted) {
             $betaClient = $acceptBeta.Result
             $streamBeta = $betaClient.GetStream()
@@ -287,6 +295,7 @@ try {
                 }
                 Check 'closing the first tab closed its connection' $closed
                 Check 'and its tab is gone' ((Ui @('search', 'e2e alpha', '--type', 'TabItem')) -match 'Found 0')
+                Check 'the status bar counts one session again' (Wait-Element '1 active session' 10)
                 Check 'the second session was not touched' ((-not (Is-Closed $betaClient)) -and (Ui @('search', 'e2e beta', '--type', 'TabItem')) -match 'Found [1-9]')
 
                 # --- Duplicate session: another tab with a copy of this session's settings
