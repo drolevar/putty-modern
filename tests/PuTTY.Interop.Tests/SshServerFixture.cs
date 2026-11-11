@@ -205,6 +205,81 @@ internal sealed partial class RegistrySandbox : IDisposable
         return hostKeys?.GetValueNames() ?? [];
     }
 
+    /// <summary>
+    /// Saves a session the way PuTTY does: a key named after the session (escaped as PuTTY escapes it) under
+    /// <c>Software\SimonTatham\PuTTY\Sessions</c>, with the values PuTTY itself writes. Anything PuTTY does not
+    /// find in it comes from its defaults, which is what a real, sparse saved session relies on.
+    /// </summary>
+    public void WriteSession(string name, string host, int port, string protocol, string? userName = null,
+        params (string Name, object Value)[] more)
+    {
+        using var session = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
+            @"Software\SimonTatham\PuTTY\Sessions\" + EscapeSessionName(name));
+        session.SetValue("HostName", host);
+        session.SetValue("PortNumber", port, Microsoft.Win32.RegistryValueKind.DWord);
+        session.SetValue("Protocol", protocol);
+        if (userName is not null)
+        {
+            session.SetValue("UserName", userName);
+        }
+
+        foreach ((string valueName, object value) in more)
+        {
+            session.SetValue(valueName, value, value is int ? Microsoft.Win32.RegistryValueKind.DWord : Microsoft.Win32.RegistryValueKind.String);
+        }
+    }
+
+    /// <summary>Everything under PuTTY's key (names, kinds, data) as text, to tell whether anything was written.</summary>
+    public string Snapshot()
+    {
+        var text = new System.Text.StringBuilder();
+        using var root = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\SimonTatham\PuTTY");
+        if (root is not null)
+        {
+            Dump(root, root.Name, text);
+        }
+
+        return text.ToString();
+    }
+
+    private static void Dump(Microsoft.Win32.RegistryKey key, string path, System.Text.StringBuilder text)
+    {
+        text.Append('[').Append(path).Append("]\n");
+        foreach (string name in key.GetValueNames().Order(StringComparer.Ordinal))
+        {
+            text.Append(name).Append('(').Append(key.GetValueKind(name)).Append(")=").Append(key.GetValue(name)).Append('\n');
+        }
+
+        foreach (string sub in key.GetSubKeyNames().Order(StringComparer.Ordinal))
+        {
+            using var child = key.OpenSubKey(sub);
+            if (child is not null)
+            {
+                Dump(child, path + "\\" + sub, text);
+            }
+        }
+    }
+    /// <summary>PuTTY's <c>escape_registry_key</c>: %XX for a space, \ * ? %, anything outside ! to ~, and a leading dot.</summary>
+    private static string EscapeSessionName(string name)
+    {
+        var escaped = new System.Text.StringBuilder();
+        bool canDot = false;
+        foreach (byte b in System.Text.Encoding.UTF8.GetBytes(name))
+        {
+            if (b == ' ' || b == '\\' || b == '*' || b == '?' || b == '%' || b < ' ' || b > '~' || (b == '.' && !canDot))
+            {
+                escaped.Append('%').Append(b.ToString("X2"));
+            }
+            else
+            {
+                escaped.Append((char)b);
+            }
+
+            canDot = true;
+        }
+
+        return escaped.ToString();
+    }
     public void Dispose()
     {
         RegOverridePredefKey(HkeyCurrentUser, 0);

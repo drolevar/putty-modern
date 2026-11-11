@@ -151,7 +151,14 @@ typedef struct pe_session_options {
     const char *key_file;      /* a PuTTY private key (.ppk) to authenticate with, or NULL */
     const char *command;       /* a remote command to run instead of a shell, or NULL */
     int32_t try_agent;         /* Pageant: -1 PuTTY's default (on), 0 off, 1 on */
+    uint32_t flags;            /* PE_OPT_* */
 } pe_session_options;
+
+/*
+ * Start from the user's own "Default Settings" in PuTTY's storage, as PuTTY does for a new session,
+ * instead of the built-in defaults. Off by default so that nothing depends on the machine.
+ */
+#define PE_OPT_SAVED_DEFAULTS 1u
 
 /*
  * Opens a connection. The call returns at once; the connection completes asynchronously
@@ -168,6 +175,25 @@ PE_API int32_t pe_session_open_ex(const char *host, int32_t port, int32_t protoc
                                   const pe_session_options *options,
                                   const pe_session_events *events, void *user,
                                   pe_session **out_session);
+
+/*
+ * Opens a session saved in PuTTY's own storage (the registry), with all of its settings, as PuTTY
+ * would: its host, port and protocol are the saved ones. `overrides` (may be NULL) replaces the user
+ * name, key file, command or Pageant setting on top. PE_ERR_FAILED if there is no such session. The
+ * storage is only read.
+ */
+PE_API int32_t pe_session_open_saved(const char *name, const pe_session_options *overrides,
+                                     const pe_session_events *events, void *user,
+                                     pe_session **out_session);
+
+/* Called once per saved session by pe_sessions_enumerate; `name` is UTF-8, valid during the call. */
+typedef void (*pe_name_fn)(void *user, const char *name);
+
+/*
+ * Lists the sessions saved in PuTTY's storage, in storage order, including "Default Settings" if the
+ * user saved one. Returns how many there were (0 for none), or a negative error code.
+ */
+PE_API int32_t pe_sessions_enumerate(pe_name_fn callback, void *user);
 
 /*
  * Answers the question `id` that a `prompt` event raised: one UTF-8 answer per question (count

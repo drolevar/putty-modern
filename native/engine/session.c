@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "putty.h"
+#include "storage.h"        /* enum_settings_*, store_host_key: not in putty.h, and an implicit declaration truncates pointers */
 #include "terminal/terminal.h"
 #include "putty_engine.h"
 #include "engine_internal.h"
@@ -546,23 +547,31 @@ PE_API int32_t pe_session_open(const char *host, int32_t port, int32_t protocol,
     return pe_session_open_ex(host, port, protocol, NULL, events, user, out_session);
 }
 
-PE_API int32_t pe_session_open_ex(const char *host, int32_t port, int32_t protocol,
-                                  const pe_session_options *options,
-                                  const pe_session_events *events, void *user,
-                                  pe_session **out_session)
+/* The settings a caller can override on top of whatever the session starts from. */
+static void apply_options(Conf *conf, const pe_session_options *options)
 {
-    int32_t rc = pe_check_engine_thread();
-    if (rc != PE_OK)
-        return rc;
-    if (!host || !*host || port < 1 || port > 65535 || !events || !out_session)
-        return PE_ERR_FAILED;
-    int putty_protocol = protocol_from_engine(protocol);
-    if (putty_protocol < 0)
-        return PE_ERR_FAILED;
-    const BackendVtable *vt = backend_vt_from_proto(putty_protocol);
-    if (!vt)
-        return PE_ERR_FAILED;   /* this protocol is not built into the engine */
+    if (!options || options->size < sizeof(*options))
+        return;
+    if (options->username && *options->username)
+        conf_set_str(conf, CONF_username, options->username);
+    if (options->key_file && *options->key_file) {
+        Filename *key = filename_from_str(options->key_file);
+        conf_set_filename(conf, CONF_keyfile, key);
+        filename_free(key);
+    }
+    if (options->command && *options->command)
+        conf_set_str(conf, CONF_remote_cmd, options->command);
+    if (options->try_agent >= 0)
+        conf_set_bool(conf, CONF_tryagent, options->try_agent != 0);
+}
 
+/*
+ * Starts the connection for a session whose settings are ready. Takes ownership of `conf`, also
+ * when it fails.
+ */
+static int32_t session_start(Conf *conf, const char *host, int port, const BackendVtable *vt,
+                             const pe_session_events *events, void *user, pe_session **out_session)
+{
     pe_session *s = snew(pe_session);
     memset(s, 0, sizeof(*s));
     s->seat.vt = &session_seat_vt;
@@ -570,26 +579,7 @@ PE_API int32_t pe_session_open_ex(const char *host, int32_t port, int32_t protoc
     s->trusted = true;          /* until a backend says otherwise */
     s->events = *events;
     s->user = user;
-
-    /* Built-in defaults only: loading the user's saved settings is slice 4. */
-    s->conf = conf_new();
-    load_open_settings(NULL, s->conf);
-    conf_set_str(s->conf, CONF_host, host);
-    conf_set_int(s->conf, CONF_port, port);
-    conf_set_int(s->conf, CONF_protocol, putty_protocol);
-    if (options && options->size >= sizeof(*options)) {
-        if (options->username && *options->username)
-            conf_set_str(s->conf, CONF_username, options->username);
-        if (options->key_file && *options->key_file) {
-            Filename *key = filename_from_str(options->key_file);
-            conf_set_filename(s->conf, CONF_keyfile, key);
-            filename_free(key);
-        }
-        if (options->command && *options->command)
-            conf_set_str(s->conf, CONF_remote_cmd, options->command);
-        if (options->try_agent >= 0)
-            conf_set_bool(s->conf, CONF_tryagent, options->try_agent != 0);
-    }
+    s->conf = conf;
 
     s->logctx = log_init(&s->logpolicy, s->conf);
 
@@ -612,6 +602,94 @@ PE_API int32_t pe_session_open_ex(const char *host, int32_t port, int32_t protoc
     return PE_OK;
 }
 
+PE_API int32_t pe_session_open_ex(const char *host, int32_t port, int32_t protocol,
+                                  const pe_session_options *options,
+                                  const pe_session_events *events, void *user,
+                                  pe_session **out_session)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!host || !*host || port < 1 || port > 65535 || !events || !out_session)
+        return PE_ERR_FAILED;
+    int putty_protocol = protocol_from_engine(protocol);
+    if (putty_protocol < 0)
+        return PE_ERR_FAILED;
+    const BackendVtable *vt = backend_vt_from_proto(putty_protocol);
+    if (!vt)
+        return PE_ERR_FAILED;   /* this protocol is not built into the engine */
+
+    /*
+     * Built-in defaults, unless the caller asks for the user's own "Default Settings" (what PuTTY
+     * starts a new session from): reading the registry would make every test depend on the machine.
+     */
+    Conf *conf = conf_new();
+    if (options && options->size >= sizeof(*options) && (options->flags & PE_OPT_SAVED_DEFAULTS))
+        do_defaults(NULL, conf);
+    else
+        load_open_settings(NULL, conf);
+    conf_set_str(conf, CONF_host, host);
+    conf_set_int(conf, CONF_port, port);
+    conf_set_int(conf, CONF_protocol, putty_protocol);
+    apply_options(conf, options);
+    return session_start(conf, host, port, vt, events, user, out_session);
+}
+
+PE_API int32_t pe_session_open_saved(const char *name, const pe_session_options *overrides,
+                                     const pe_session_events *events, void *user,
+                                     pe_session **out_session)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!name || !events || !out_session)
+        return PE_ERR_FAILED;
+
+    Conf *conf = conf_new();
+    if (!load_settings(name, conf)) {       /* it fills in defaults even then, but there is no such session */
+        conf_free(conf);
+        return PE_ERR_FAILED;
+    }
+    int putty_protocol = conf_get_int(conf, CONF_protocol);
+    const BackendVtable *vt = backend_vt_from_proto(putty_protocol);
+    if (!vt) {
+        conf_free(conf);
+        return PE_ERR_FAILED;
+    }
+    apply_options(conf, overrides);
+    /* The host and port are the saved ones; a serial session has neither and its settings carry the line. */
+    char *host = dupstr(conf_get_str(conf, CONF_host));
+    int port = conf_get_int(conf, CONF_port);
+    rc = session_start(conf, host, port, vt, events, user, out_session);
+    sfree(host);
+    return rc;
+}
+
+PE_API int32_t pe_sessions_enumerate(pe_name_fn callback, void *user)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!callback)
+        return PE_ERR_FAILED;
+
+    settings_e *handle = enum_settings_start();
+    if (!handle)
+        return 0;                           /* no PuTTY sessions stored: not an error */
+    int32_t count = 0;
+    strbuf *name = strbuf_new();
+    while (true) {
+        strbuf_clear(name);
+        bool more = enum_settings_next(handle, name);
+        if (!more)
+            break;
+        callback(user, name->s);
+        count++;
+    }
+    strbuf_free(name);
+    enum_settings_finish(handle);
+    return count;
+}
 /* ----- Answering questions -------------------------------------------------------------- */
 
 /*

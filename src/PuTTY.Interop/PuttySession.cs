@@ -131,6 +131,7 @@ public sealed unsafe partial class PuttySession : IDisposable
     private readonly int port;
     private readonly SessionProtocol protocol;
     private readonly PuttySessionOptions? options;
+    private readonly string? savedName;     // set for a session opened from PuTTY's storage
 
     private nint handle;
     private GCHandle self;          // lets native code find this object again
@@ -146,6 +147,25 @@ public sealed unsafe partial class PuttySession : IDisposable
         this.port = port;
         this.protocol = protocol;
         this.options = options;
+    }
+
+    private PuttySession(string savedName, PuttySessionOptions? overrides)
+    {
+        this.savedName = savedName;
+        host = savedName;               // only for messages: the real host comes from the saved settings
+        options = overrides;
+    }
+
+    /// <summary>
+    /// A session saved in PuTTY's own storage (the registry, shared with PuTTY itself), to be opened with
+    /// all of its settings: host, port and protocol are the saved ones. <paramref name="overrides"/>
+    /// replaces the user name, key file, command or Pageant setting on top. Not started yet: subscribe,
+    /// then <see cref="Start"/>, which throws if there is no such session. The storage is only read.
+    /// </summary>
+    public static PuttySession OpenSaved(string name, PuttySessionOptions? overrides = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        return new PuttySession(name, overrides);
     }
 
     public event EventHandler<SessionOutputEventArgs>? Output;
@@ -205,6 +225,7 @@ public sealed unsafe partial class PuttySession : IDisposable
         // The settings are UTF-8 copies that only have to live until the engine has read them.
         NativeSessionOptions native_options = default;
         native_options.Size = (uint)sizeof(NativeSessionOptions);
+        native_options.Flags = options?.UseSavedDefaults == true ? 1u : 0u;
         native_options.TryAgent = options?.TryAgent is { } tryAgent ? (tryAgent ? 1 : 0) : -1;
         native_options.UserName = (byte*)Marshal.StringToCoTaskMemUTF8(options?.UserName);
         native_options.KeyFile = (byte*)Marshal.StringToCoTaskMemUTF8(options?.KeyFile);
@@ -213,8 +234,10 @@ public sealed unsafe partial class PuttySession : IDisposable
         nint native;
         try
         {
-            result = NativeMethods.SessionOpenEx(
-                host, port, (int)protocol, &native_options, &events, GCHandle.ToIntPtr(self), out native);
+            result = savedName is not null
+                ? NativeMethods.SessionOpenSaved(savedName, &native_options, &events, GCHandle.ToIntPtr(self), out native)
+                : NativeMethods.SessionOpenEx(
+                    host, port, (int)protocol, &native_options, &events, GCHandle.ToIntPtr(self), out native);
         }
         finally
         {
@@ -227,8 +250,9 @@ public sealed unsafe partial class PuttySession : IDisposable
             self.Free();
             disposed = true;
             string detail = LastError is { } message ? $" ({message})" : string.Empty;
-            throw new InvalidOperationException(
-                $"Could not open a {protocol} session to {host}:{port}{detail}.");
+            throw new InvalidOperationException(savedName is not null
+                ? $"Could not open the saved session \"{savedName}\"{detail}."
+                : $"Could not open a {protocol} session to {host}:{port}{detail}.");
         }
 
         handle = native;

@@ -119,6 +119,12 @@ target_include_directories(puttyengine PRIVATE
   "${PUTTY_BINARY_DIR}/CMakeFiles")   # generated cmake.h / licence.h
 
 # Same definitions PuTTY's own build applies (cmake/platforms/windows.cmake).
+# An implicit function declaration (C4013) in C means "returns int": it truncated a 64-bit pointer once and
+# crashed. Never allow it.
+if(MSVC)
+  target_compile_options(puttyengine PRIVATE /we4013)
+endif()
+
 target_compile_definitions(puttyengine PRIVATE
   PUTTY_ENGINE_BUILD
   HAVE_CMAKE_H

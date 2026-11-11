@@ -17,6 +17,12 @@ public sealed class PuttySessionOptions
 
     /// <summary>Whether to try Pageant; null keeps PuTTY's default (on).</summary>
     public bool? TryAgent { get; init; }
+
+    /// <summary>
+    /// Start a new session from the user's own "Default Settings" in PuTTY's storage, as PuTTY does,
+    /// instead of the built-in defaults. Not for a saved session, which brings its own settings.
+    /// </summary>
+    public bool UseSavedDefaults { get; init; }
 }
 
 /// <summary>One question of a <see cref="SessionPromptEventArgs"/>: its text, and whether the typed answer may be shown.</summary>

@@ -40,6 +40,13 @@ internal static partial class NativeMethods
         string host, int port, int protocol, NativeSessionOptions* options, NativeSessionEvents* events,
         nint user, out nint session);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_open_saved", StringMarshalling = StringMarshalling.Utf8)]
+    internal static unsafe partial int SessionOpenSaved(
+        string name, NativeSessionOptions* overrides, NativeSessionEvents* events, nint user, out nint session);
+
+    [LibraryImport(Library, EntryPoint = "pe_sessions_enumerate")]
+    internal static unsafe partial int SessionsEnumerate(delegate* unmanaged<nint, byte*, void> callback, nint user);
+
     [LibraryImport(Library, EntryPoint = "pe_session_prompt_respond")]
     internal static unsafe partial int SessionPromptRespond(nint session, ulong id, byte** answers, int count);
 
@@ -147,6 +154,7 @@ internal unsafe struct NativeSessionOptions
     public byte* KeyFile;
     public byte* Command;
     public int TryAgent;                                               // -1 default, 0 off, 1 on
+    public uint Flags;                                                 // 1 = start from the saved Default Settings
 }
 
 /// <summary>Mirrors <c>pe_terminal_events</c>.</summary>
