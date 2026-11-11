@@ -22,7 +22,10 @@
 #>
 param(
     [string[]] $Smoke = @('terminal', 'ssh', 'sessions', 'settings'),
-    [string] $AppDir = 'artifacts\publish\PuTTY.App\release_win-x64'
+    [string] $AppDir = 'artifacts\publish\PuTTY.App\release_win-x64',
+    # Attach cdb to the app in the check (for the checks that call Attach-Debugger): a crash then leaves the stacks
+    # of every thread in results\cdb.log and a full dump in results\crash.dmp. Needs tools\sandbox\install-debugger.ps1.
+    [switch] $AttachDebugger
 )
 
 $ErrorActionPreference = 'Stop'
@@ -77,7 +80,10 @@ foreach ($name in $Smoke) {
     Write-Host "== $name (in the Sandbox)"
     # A small .cmd keeps the quoting out of wsb's command line, which does not survive nested quotes.
     $launcher = Join-Path $results "run-$name.cmd"
-    Set-Content -Path $launcher -Encoding ASCII -Value "powershell -NoProfile -ExecutionPolicy Bypass -File C:\spike\work\tools\sandbox\guest-run.ps1 -Smoke $name -Exe C:\spike\work\app\PuTTY.App.exe > C:\spike\work\results\$name.txt 2>&1"
+    $debuggerFlag = if ($AttachDebugger) { '1' } else { '0' }
+    Set-Content -Path $launcher -Encoding ASCII -Value @(
+        "set PUTTYMODERN_DEBUG_CDB=$debuggerFlag",
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\spike\work\tools\sandbox\guest-run.ps1 -Smoke $name -Exe C:\spike\work\app\PuTTY.App.exe > C:\spike\work\results\$name.txt 2>&1")
     $run = & wsb exec --id $id -r ExistingLogin -d 'C:\spike\work' -c "cmd.exe /c C:\spike\work\results\run-$name.cmd" 2>&1
     $code = if (($run | Out-String) -match 'exited with code: (\d+)') { [int]$Matches[1] } else { -1 }
     if (Test-Path $out) {

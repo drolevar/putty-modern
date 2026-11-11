@@ -124,11 +124,19 @@ static bool session_is_live(const pe_session *session)
         }                                                                   \
     } while (0)
 
+static void interaction_clear(pe_session *s);
+
 static void notify_closed_once(pe_session *s)
 {
     if (s->closed_notified)
         return;
     s->closed_notified = true;
+    /*
+     * The connection is over, so a question still open is too: what it points to (the prompts, the callback's
+     * context) belongs to a backend that is shutting down and may be freed before the host, which cancels its
+     * dialogs when it sees this event, has answered. An answer arriving later is refused (PE_ERR_STATE).
+     */
+    interaction_clear(s);
     HOST_EVENT_NOARGS(s, closed);
 }
 
@@ -245,8 +253,18 @@ static SeatPromptResult session_get_userpass_input(Seat *seat, prompts_t *p)
 
     if (s->pending_close || !s->events.prompt)
         return SPR_USER_ABORT;                  /* nobody to ask: fail safe, as the nullseat does */
-    if (s->interaction.id != 0)
+    if (s->interaction.id != 0) {
+        /*
+         * PuTTY's login code is a coroutine that asks again for the same prompts every time it runs while the
+         * answer is outstanding (any packet, any queued callback wakes it: `while (spr.kind == SPRK_INCOMPLETE)
+         * { crReturnV; spr = seat_get_userpass_input(...); }`). That is "still waiting", not a second question.
+         * Aborting here made PuTTY free the prompts that the open question still pointed at, and the host's answer
+         * then wrote into freed memory (found against a real OpenSSH server, which sends packets meanwhile).
+         */
+        if (s->interaction.kind == INTERACT_PROMPT && s->interaction.prompts == p)
+            return SPR_INCOMPLETE;
         return SPR_SW_ABORT("Another question is already waiting for an answer");
+    }
 
     size_t count = p->n_prompts;
     const char **texts = snewn(count ? count : 1, const char *);

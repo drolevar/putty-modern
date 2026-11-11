@@ -45,6 +45,14 @@ if ($Smoke -in 'ssh', 'settings') {
     }
 }
 
+# The check against a real OpenSSH server needs one: install it with winget, and have sshd running.
+if ($Smoke -eq 'openssh') {
+    if (-not (Test-Path 'C:\Program Files\OpenSSH\sshd.exe')) {
+        Write-Host 'Installing OpenSSH (client and server) with winget ...'
+        & winget install --id Microsoft.OpenSSH.Preview --exact --silent --accept-package-agreements --accept-source-agreements
+    }
+    if ((Get-Service sshd -ErrorAction SilentlyContinue) -and (Get-Service sshd).Status -ne 'Running') { Start-Service sshd }
+}
 Get-Process -Name 'PuTTY.App' -ErrorAction SilentlyContinue | Stop-Process -Force
 
 $script = Join-Path $work "tools\app-$Smoke-smoke.ps1"

@@ -19,6 +19,11 @@
       <Content Include="$(ArtifactsPath)\native\x64\puttyengine.dll"
                Link="puttyengine.dll"
                CopyToOutputDirectory="PreserveNewest" />
+      <!-- The symbols travel with it: a debugger or a crash dump names the engine's functions only with this. -->
+      <Content Include="$(ArtifactsPath)\native\x64\puttyengine.pdb"
+               Link="puttyengine.pdb"
+               CopyToOutputDirectory="PreserveNewest"
+               Condition="Exists('$(ArtifactsPath)\native\x64\puttyengine.pdb')" />
     </ItemGroup>
   </Target>
 

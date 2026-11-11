@@ -5,7 +5,12 @@
  *
  *   node server.js [--port N] [--user NAME] [--password PW] [--methods password,keyboard-interactive,publickey]
  *                  [--authorized-key "ssh-ed25519 AAAA..."] [--host-key-type ed25519|rsa|ecdsa]
- *                  [--host-key-file PATH] [--banner TEXT] [--motd TEXT]
+ *                  [--host-key-file PATH] [--banner TEXT] [--motd TEXT] [--chatter]
+ *
+ * --chatter: 150 ms after the server asks the keyboard-interactive question it sends the client one more packet
+ * (an OpenSSH keep-alive request, which PuTTY does not expect before login). It wakes PuTTY's login code while the
+ * question is still open, as a real OpenSSH server does; the toy server otherwise never sends anything meanwhile.
+ * The login itself may then fail on that unexpected packet: only the question's survival is of interest.
  *
  * Once it is listening it prints one JSON line on stdout:
  *   {"port":2222,"hostKeyType":"ssh-ed25519","sha256":"SHA256:...","md5":"aa:bb:..."}
@@ -36,6 +41,7 @@ function parseArgs(argv) {
     hostKeyFile: null,
     banner: null,
     motd: 'Welcome to the PuTTY modern test server.',
+    chatter: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const name = argv[i];
@@ -53,6 +59,7 @@ function parseArgs(argv) {
       case '--host-key-file': options.hostKeyFile = value(); break;
       case '--banner': options.banner = value(); break;
       case '--motd': options.motd = value(); break;
+      case '--chatter': options.chatter = true; break;
       default: throw new Error(`unknown argument ${name}`);
     }
   }
@@ -158,6 +165,10 @@ function main() {
         return ctx.password === options.password ? ctx.accept() : ctx.reject(options.methods);
       }
       if (ctx.method === 'keyboard-interactive' && options.methods.includes('keyboard-interactive')) {
+        if (options.chatter) {
+          // _protocol is ssh2's own, not a public API; this is a test double, so a miss is only reported.
+          setTimeout(() => { try { client._protocol.ping(); } catch (e) { emit({ event: 'chatter-failed', message: String(e) }); } }, 150);
+        }
         return ctx.prompt([{ prompt: 'Password: ', echo: false }], 'Test server', 'Type the password.', (answers) => {
           if (answers.length === 1 && answers[0] === options.password) ctx.accept();
           else ctx.reject(options.methods);

@@ -59,6 +59,9 @@ ExternalProject_Add(putty_libs
   CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${PUTTY_LIB_DIR}
+    # Debug information inside the objects (/Z7, no per-library .pdb to keep around), so that the engine's own
+    # puttyengine.pdb names PuTTY's functions in a crash dump. _INIT keeps the generator's /DWIN32 /D_WINDOWS.
+    -DCMAKE_C_FLAGS_INIT=/Z7
   INSTALL_COMMAND ""
   BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target ${PUTTY_LIBS}
   BUILD_BYPRODUCTS ${_putty_byproducts}
@@ -115,7 +118,10 @@ target_include_directories(puttyengine PRIVATE
 # An implicit function declaration (C4013) in C means "returns int": it truncated a 64-bit pointer once and
 # crashed. Never allow it.
 if(MSVC)
-  target_compile_options(puttyengine PRIVATE /we4013)
+  target_compile_options(puttyengine PRIVATE /we4013 /Z7)
+  # puttyengine.pdb next to the DLL, in every configuration: a crash in the field (or in the Sandbox) is only
+  # readable with it. /DEBUG turns off the linker's size optimisations, so ask for them again.
+  target_link_options(puttyengine PRIVATE /DEBUG /OPT:REF /OPT:ICF)
 endif()
 
 target_compile_definitions(puttyengine PRIVATE

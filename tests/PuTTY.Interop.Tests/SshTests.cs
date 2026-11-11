@@ -402,6 +402,27 @@ public sealed class SshTests
         Assert.IsFalse(rig.OutputText.Contains("Welcome"));
     }
     [TestMethod]
+    public void A_packet_arriving_while_the_password_question_is_open_does_not_abort_it()
+    {
+        // Found against a real OpenSSH server: PuTTY's login code asks the seat for the same prompts again every time
+        // it is woken while the answer is outstanding. Answering that with an abort made PuTTY free the prompts that
+        // the open question pointed to, and the later answer wrote into freed memory (a crash of the app).
+        using var registry = new RegistrySandbox();
+        using var server = SshServerFixture.Start("--chatter");
+        SessionPromptEventArgs? waiting = null;
+        using var rig = new Rig { OnConfirm = e => e.Accept(), OnPrompt = e => waiting = e };
+
+        rig.Start(server.Port, Test);
+        Assert.IsTrue(EngineThread.WaitUntil(() => Volatile.Read(ref waiting) is not null, Generous), rig.Diagnostics());
+        Thread.Sleep(1000);                                                 // the server's extra packet arrives meanwhile
+
+        Assert.IsFalse(server.Events.Any(e => e.Contains("chatter-failed")), "the test server could not send its packet: " + string.Join(" ", server.Events));
+        Assert.AreEqual(0, rig.ClosedCount, "the question was open and the session must stay open: " + rig.Diagnostics());
+        Assert.AreEqual(0, rig.Errors.Length, rig.Diagnostics());
+        Assert.IsTrue(rig.Engine.Run(() => waiting!.Respond(SshServerFixture.Password)), "the question is still open and can be answered");
+    }
+
+    [TestMethod]
     public void A_session_closed_while_a_question_is_open_ends_cleanly()
     {
         using var registry = new RegistrySandbox();

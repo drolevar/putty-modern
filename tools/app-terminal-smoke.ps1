@@ -41,6 +41,7 @@ public static class SmokeNative
 {
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int width, int height, bool repaint);
+    [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll", SetLastError = true)] public static extern bool PostThreadMessageW(uint threadId, uint msg, UIntPtr wParam, IntPtr lParam);
 
     // Counts pixels of exactly the given colour (the interior of thick glyph strokes is solid).
@@ -128,8 +129,16 @@ try {
     Check 'typed text reaches the server' ($text.StartsWith('xy<CR>')) "(server received: $text)"
 
     # Growing the window must grow the terminal: more of the view is terminal black, and the text is redrawn.
-    $before = [SmokeNative]::CountColour($Screenshot, 0, 0, 0)
-    [void][SmokeNative]::MoveWindow($app.MainWindowHandle, 40, 40, 1700, 1000, $true)
+    # Windows does not let a window grow beyond the screen, and the guest's screen is as big as the Sandbox window
+    # (1006x677 once), so shrink first and then grow to nearly the whole screen: that works on any screen.
+    $screenWidth = [SmokeNative]::GetSystemMetrics(0)
+    $screenHeight = [SmokeNative]::GetSystemMetrics(1)
+    [void][SmokeNative]::MoveWindow($app.MainWindowHandle, 0, 0, [Math]::Min(760, $screenWidth), [Math]::Min(520, $screenHeight), $true)
+    Start-Sleep -Seconds 3
+    $small = $Screenshot -replace '\.png$', '-small.png'
+    & winapp ui screenshot -a PuTTY.App --output $small 2>&1 | Out-Null
+    $before = [SmokeNative]::CountColour($small, 0, 0, 0)
+    [void][SmokeNative]::MoveWindow($app.MainWindowHandle, 0, 0, $screenWidth, $screenHeight, $true)
     Start-Sleep -Seconds 3
     $resized = $Screenshot -replace '\.png$', '-resized.png'
     & winapp ui screenshot -a PuTTY.App --output $resized 2>&1 | Out-Null
