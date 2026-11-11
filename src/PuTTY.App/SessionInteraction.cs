@@ -271,6 +271,32 @@ internal sealed class SessionInteraction : IDisposable
 
     // ----- Errors -----------------------------------------------------------------------------
 
+    /// <summary>A plain message with an OK button, for when no session exists to ask or tell.</summary>
+    public static async Task ShowMessageAsync(XamlRoot? root, string title, string message)
+    {
+        if (root is null)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = root,
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, MinWidth = 380 },
+            CloseButtonText = "OK",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        try
+        {
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Dialog failed: {ex.Message}");
+        }
+    }
+
     private async void OnError(object? sender, SessionErrorEventArgs e)
     {
         if (!e.IsFatal)

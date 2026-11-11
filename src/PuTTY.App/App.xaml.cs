@@ -14,6 +14,7 @@ public partial class App : Application
 
     public App()
     {
+        TestRegistry.ApplyFromEnvironment();
         InitializeComponent();
         AotTypeAnchors.Touch();
     }
