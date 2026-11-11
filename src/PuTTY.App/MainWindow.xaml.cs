@@ -18,6 +18,7 @@ public sealed partial class MainWindow : Window
         terminal = new TerminalViewController(TerminalHost);
         Closed += (_, _) =>
         {
+            interaction?.Dispose();
             terminal.Dispose();
             terminal.Session?.Dispose();
             App.StopEngine();
@@ -37,6 +38,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool connected;
+    private SessionInteraction? interaction;
 
     private void Connect(ConnectionTarget target)
     {
@@ -46,8 +48,12 @@ public sealed partial class MainWindow : Window
         }
 
         connected = true;
-        var session = new PuttySession(target.Host, target.Port, target.Protocol);
+        PuttySessionOptions? options = target.UserName is null && target.KeyFile is null
+            ? null
+            : new PuttySessionOptions { UserName = target.UserName, KeyFile = target.KeyFile };
+        var session = new PuttySession(target.Host, target.Port, target.Protocol, options);
         session.TitleChanged += (_, e) => Title = $"{e.Title} - PuTTY";
+        interaction = new SessionInteraction(session, () => TerminalHost.XamlRoot, terminal.Focus);
         session.Start();
         terminal.Show(session);
     }

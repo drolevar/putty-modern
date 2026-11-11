@@ -96,6 +96,10 @@ public sealed class SshTests
         Assert.IsTrue(rig.WaitForOutput("Welcome to the PuTTY modern test server."), rig.Diagnostics());
         rig.Type("echo hello from ssh\r");
         Assert.IsTrue(rig.WaitForOutput("hello from ssh\r\n$ "), rig.Diagnostics());
+        Assert.IsTrue(EngineThread.WaitUntil(() => server.Events.Contains("{\"event\":\"command\",\"text\":\"echo hello from ssh\"}"), Generous),
+            "the server never saw the command: " + string.Join(" ", server.Events));
+        // PuTTY tries keyboard-interactive before plain password, and the server offers both.
+        Assert.IsTrue(server.Events.Any(e => e.Contains("\"event\":\"auth\"") && e.Contains("\"user\":\"test\"") && e.Contains("\"ok\":true")), string.Join(" ", server.Events));
         Assert.AreEqual(0, rig.ClosedCount);
 
         Assert.AreEqual(1, rig.Confirmations.Length);

@@ -14,10 +14,29 @@ namespace PuTTY.Interop.Tests;
 internal sealed class SshServerFixture : IDisposable
 {
     private readonly Process process;
+    private readonly List<string> events = [];
 
     private SshServerFixture(Process process, JsonElement info)
     {
         this.process = process;
+        // What the server reports after its first line (logins, shells, commands): read for as long as it lives.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (await process.StandardOutput.ReadLineAsync() is { } line)
+                {
+                    lock (events)
+                    {
+                        events.Add(line);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // the process ended
+            }
+        });
         Port = info.GetProperty("port").GetInt32();
         HostKeyType = info.GetProperty("hostKeyType").GetString()!;
         Sha256 = info.GetProperty("sha256").GetString()!;
@@ -34,6 +53,9 @@ internal sealed class SshServerFixture : IDisposable
     public string Sha256 { get; }
 
     public string Md5 { get; }
+
+    /// <summary>The JSON lines the server has reported so far, such as <c>{"event":"command","text":"echo hi"}</c>.</summary>
+    public string[] Events { get { lock (events) { return [.. events]; } } }
 
     /// <summary>Starts the server, or marks the test inconclusive if it cannot be started.</summary>
     /// <param name="arguments">Arguments for server.js, such as <c>--methods keyboard-interactive</c> or <c>--port 2222</c>.</param>

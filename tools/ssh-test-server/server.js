@@ -10,13 +10,20 @@
  * Once it is listening it prints one JSON line on stdout:
  *   {"port":2222,"hostKeyType":"ssh-ed25519","sha256":"SHA256:...","md5":"aa:bb:..."}
  * and it exits when its stdin closes, so the process that started it only has to close the pipe
- * (or kill it).
+ * (or kill it). After that line it reports what happens, one JSON object per line, so a test can
+ * check that a login or a typed command really reached the server:
+ *   {"event":"auth","method":"password","user":"test","ok":true}
+ *   {"event":"shell"}    {"event":"command","text":"echo hi"}    {"event":"exec","text":"echo hi"}
  *
  * ssh2 is installed outside the source tree (see tools/start-ssh-test-server.ps1, which sets NODE_PATH).
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const { Server, utils } = require('ssh2');
+
+function emit(event) {
+  process.stdout.write(JSON.stringify(event) + '\n');
+}
 
 function parseArgs(argv) {
   const options = {
@@ -98,6 +105,7 @@ function runShell(stream, options) {
         stream.write('\r\n');
         const command = line.trim();
         line = '';
+        emit({ event: 'command', text: command });
         if (command === 'exit') {
           stream.exit(0);
           stream.end();
@@ -131,7 +139,20 @@ function main() {
 
   const server = new Server({ hostKeys: [hostKey], banner: options.banner ?? undefined }, (client) => {
     client.on('error', () => { /* a client that drops the connection is not news */ });
-    client.on('authentication', (ctx) => {
+    client.on('authentication', (rawCtx) => {
+      // Every outcome is reported; ctx wraps the real context so accept and reject can say so.
+      const ctx = {
+        username: rawCtx.username,
+        method: rawCtx.method,
+        password: rawCtx.password,
+        key: rawCtx.key,
+        signature: rawCtx.signature,
+        blob: rawCtx.blob,
+        hashAlgo: rawCtx.hashAlgo,
+        prompt: (...args) => rawCtx.prompt(...args),
+        accept: () => { emit({ event: 'auth', method: rawCtx.method, user: rawCtx.username, ok: true }); rawCtx.accept(); },
+        reject: (methods) => { emit({ event: 'auth', method: rawCtx.method, user: rawCtx.username, ok: false }); rawCtx.reject(methods); },
+      };
       if (ctx.username !== options.user) return ctx.reject(options.methods);
       if (ctx.method === 'password' && options.methods.includes('password')) {
         return ctx.password === options.password ? ctx.accept() : ctx.reject(options.methods);
@@ -157,9 +178,10 @@ function main() {
         session.on('pty', (accept) => accept && accept());
         session.on('window-change', (accept) => accept && accept());
         session.on('env', (accept) => accept && accept());
-        session.on('shell', (accept) => runShell(accept(), options));
+        session.on('shell', (accept) => { emit({ event: 'shell' }); runShell(accept(), options); });
         session.on('exec', (accept, reject, info) => {
           const stream = accept();
+          emit({ event: 'exec', text: info.command });
           const match = /^echo (.*)$/.exec(info.command);
           if (match) {
             stream.write(match[1] + '\n');

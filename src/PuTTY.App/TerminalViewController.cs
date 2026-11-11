@@ -115,6 +115,9 @@ internal sealed class TerminalViewController : IDisposable
         }
     }
 
+    /// <summary>Puts the keyboard focus on the terminal, for instance after a dialog closed.</summary>
+    public void Focus() => host.Focus(FocusState.Programmatic);
+
     private (int Width, int Height) PhysicalSize() => (
         (int)Math.Round(panel.ActualWidth * panel.CompositionScaleX),
         (int)Math.Round(panel.ActualHeight * panel.CompositionScaleY));
