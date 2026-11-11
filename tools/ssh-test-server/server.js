@@ -5,7 +5,12 @@
  *
  *   node server.js [--port N] [--user NAME] [--password PW] [--methods password,keyboard-interactive,publickey]
  *                  [--authorized-key "ssh-ed25519 AAAA..."] [--host-key-type ed25519|rsa|ecdsa]
- *                  [--host-key-file PATH] [--banner TEXT] [--motd TEXT] [--chatter]
+ *                  [--host-key-file PATH] [--banner TEXT] [--motd TEXT] [--chatter] [--no-forwarding]
+ *
+ * Port forwarding is on: a "direct-tcpip" channel request (a local or dynamic forward of the client) connects to the
+ * address it names, from this machine, and relays; a "tcpip-forward" request (a remote forward) makes the server
+ * listen on 127.0.0.1 at the requested port and open a "forwarded-tcpip" channel to the client for each connection.
+ * --no-forwarding refuses both, as a server that does not allow TCP forwarding does.
  *
  * --chatter: 150 ms after the server asks the keyboard-interactive question it sends the client one more packet
  * (an OpenSSH keep-alive request, which PuTTY does not expect before login). It wakes PuTTY's login code while the
@@ -19,11 +24,13 @@
  * check that a login or a typed command really reached the server:
  *   {"event":"auth","method":"password","user":"test","ok":true}
  *   {"event":"shell"}    {"event":"command","text":"echo hi"}    {"event":"exec","text":"echo hi"}
+ *   {"event":"tcpip","dest":"127.0.0.1:8080","ok":true}    {"event":"tcpip-forward","port":5000}    {"event":"tcpip-forward-cancel","port":5000}
  *
  * ssh2 is installed outside the source tree (see tools/start-ssh-test-server.ps1, which sets NODE_PATH).
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const net = require('node:net');
 const { Server, utils } = require('ssh2');
 
 function emit(event) {
@@ -42,6 +49,7 @@ function parseArgs(argv) {
     banner: null,
     motd: 'Welcome to the PuTTY modern test server.',
     chatter: false,
+    noForwarding: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const name = argv[i];
@@ -60,6 +68,7 @@ function parseArgs(argv) {
       case '--banner': options.banner = value(); break;
       case '--motd': options.motd = value(); break;
       case '--chatter': options.chatter = true; break;
+      case '--no-forwarding': options.noForwarding = true; break;
       default: throw new Error(`unknown argument ${name}`);
     }
   }
@@ -184,6 +193,53 @@ function main() {
       return ctx.reject(options.methods);               // 'none' and anything else: say what is on offer
     });
     client.on('ready', () => {
+      // Local and dynamic forwards of the client: it asks for a channel to somewhere, we connect there and relay.
+      client.on('tcpip', (accept, reject, info) => {
+        const dest = `${info.destIP}:${info.destPort}`;
+        if (options.noForwarding) { emit({ event: 'tcpip', dest, ok: false }); return reject(); }
+        const socket = net.connect(info.destPort, info.destIP);
+        let accepted = false;
+        socket.on('connect', () => {
+          accepted = true;
+          emit({ event: 'tcpip', dest, ok: true });
+          const channel = accept();
+          channel.pipe(socket);
+          socket.pipe(channel);
+          channel.on('error', () => socket.destroy());
+        });
+        socket.on('error', () => { if (!accepted) { emit({ event: 'tcpip', dest, ok: false }); reject(); } else socket.destroy(); });
+      });
+      // Remote forwards: listen here, open a channel to the client for each connection.
+      const remoteListeners = new Map();
+      client.on('request', (accept, reject, name, info) => {
+        if (name === 'tcpip-forward') {
+          if (options.noForwarding) return reject();
+          const listener = net.createServer((socket) => {
+            client.forwardOut(info.bindAddr, listener.address().port, socket.remoteAddress ?? '127.0.0.1', socket.remotePort ?? 0, (error, channel) => {
+              if (error) return socket.destroy();
+              socket.pipe(channel);
+              channel.pipe(socket);
+              channel.on('error', () => socket.destroy());
+              socket.on('error', () => channel.destroy());
+            });
+          });
+          listener.on('error', () => reject());
+          listener.listen(info.bindPort, '127.0.0.1', () => {
+            const port = listener.address().port;
+            remoteListeners.set(port, listener);
+            emit({ event: 'tcpip-forward', port });
+            accept(info.bindPort === 0 ? port : undefined);
+          });
+        } else if (name === 'cancel-tcpip-forward') {
+          const listener = remoteListeners.get(info.bindPort);
+          if (listener) { listener.close(); remoteListeners.delete(info.bindPort); emit({ event: 'tcpip-forward-cancel', port: info.bindPort }); }
+          accept();
+        } else {
+          reject();
+        }
+      });
+      client.on('close', () => { for (const listener of remoteListeners.values()) listener.close(); });
+
       client.on('session', (acceptSession) => {
         const session = acceptSession();
         session.on('pty', (accept) => accept && accept());
