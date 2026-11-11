@@ -137,5 +137,7 @@ target_link_libraries(puttyengine PRIVATE
   ${_putty_link_targets}
   # PuTTY's platform_libraries on Windows
   advapi32 comdlg32 gdi32 imm32 ole32 shell32 user32 ws2_32 kernel32
+  # the bell sound file (PlaySoundW)
+  winmm
   # the terminal renderer (render.cpp)
   d2d1 dwrite dxgi d3d11 windowscodecs uuid)

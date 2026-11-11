@@ -204,7 +204,11 @@ public sealed partial class MainWindow : Window
         try
         {
             var window = new SettingsWindow(dialog, $"Session settings - {tab.Title}");
-            window.Closed += (_, _) => tab.Terminal.Focus();
+            window.Closed += (_, _) =>
+            {
+                tab.Terminal.RefreshFont();         // the font may have been changed (Window > Appearance)
+                tab.Terminal.Focus();
+            };
             window.Activate();
         }
         catch (Exception ex)
@@ -450,6 +454,8 @@ public sealed partial class MainWindow : Window
             }
         };
         session.Error += (_, e) => log.Add(tab.Title, e.Message, error: true);
+        // The sound (or the visual bell) is the engine's; drawing attention to the window is ours: the session's "bell indicator" setting.
+        session.Bell += (_, e) => WindowFlash.ForBell(WinRT.Interop.WindowNative.GetWindowHandle(this), e.Indicator);
         session.CursorMoved += (_, e) =>
         {
             if (ReferenceEquals(active, tab) && ReferenceEquals(tab.Session, session))

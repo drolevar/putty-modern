@@ -1018,11 +1018,18 @@ void pe_session_notify_title(void *owner, const char *utf8_title)
         TERMINAL_EVENT(s, title, utf8_title);
 }
 
-void pe_session_notify_bell(void *owner)
+void pe_session_notify_bell(void *owner, int indicator)
 {
     pe_session *s = (pe_session *)owner;
     if (session_is_live(s))
-        TERMINAL_EVENT_NOARGS(s, bell);
+        TERMINAL_EVENT(s, bell, indicator);
+}
+
+void pe_session_notify_warning(void *owner, const char *text)
+{
+    pe_session *s = (pe_session *)owner;
+    if (session_is_live(s))
+        HOST_EVENT(s, error, text, 0);
 }
 
 void pe_session_notify_scrollbar(void *owner, int total, int start, int page)
@@ -1182,6 +1189,34 @@ PE_API int32_t pe_session_set_font(pe_session *s, const wchar_t *font_family, fl
         return PE_ERR_FAILED;
     apply_view_geometry(s);
     return PE_OK;
+}
+
+/*
+ * The font the session's settings ask for (Window > Appearance): its name as UTF-8 (the length is returned, the
+ * text copied up to `capacity`), its height (positive: points, negative: pixels, as in a LOGFONT) and whether it is bold.
+ */
+PE_API int32_t pe_session_get_font(pe_session *s, char *name, int32_t capacity, int32_t *height, int32_t *bold)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || !s->conf)
+        return PE_ERR_STATE;
+    FontSpec *font = conf_get_fontspec(s->conf, CONF_font);
+    if (!font)
+        return PE_ERR_STATE;
+    if (height)
+        *height = font->height;
+    if (bold)
+        *bold = font->isbold ? 1 : 0;
+    const char *text = font->name ? font->name : "";
+    size_t length = strlen(text);
+    if (name && capacity > 0) {
+        size_t n = length < (size_t)capacity - 1 ? length : (size_t)capacity - 1;
+        memcpy(name, text, n);
+        name[n] = '\0';
+    }
+    return (int32_t)length;
 }
 
 PE_API int32_t pe_session_terminal_geometry(pe_session *s, pe_terminal_geometry *out)

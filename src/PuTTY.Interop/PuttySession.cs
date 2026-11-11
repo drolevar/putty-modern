@@ -40,6 +40,25 @@ public sealed class SessionScrollbarEventArgs(int total, int start, int page) : 
     public int Page { get; } = page;
 }
 
+/// <summary>What a bell should do to draw attention to the window (the session's "Taskbar/caption indication on bell" setting).</summary>
+public enum BellIndicator
+{
+    /// <summary>Nothing.</summary>
+    Disabled = 0,
+
+    /// <summary>Flash until the window is used.</summary>
+    Flash = 1,
+
+    /// <summary>Flash a few times, then stay lit.</summary>
+    Steady = 2,
+}
+
+/// <summary>The terminal rang its bell. The sound (and a visual bell) have been dealt with by the engine.</summary>
+public sealed class SessionBellEventArgs(BellIndicator indicator) : EventArgs
+{
+    public BellIndicator Indicator { get; } = indicator;
+}
+
 /// <summary>The terminal selected text that should go onto the system clipboard.</summary>
 public sealed class SessionClipboardEventArgs(string text) : EventArgs
 {
@@ -253,8 +272,11 @@ public sealed unsafe partial class PuttySession : IDisposable
     /// </summary>
     public event EventHandler? ClipboardPasteRequested;
 
-    /// <summary>The terminal rang its bell. Raised on the engine thread.</summary>
-    public event EventHandler? Bell;
+    /// <summary>
+    /// The terminal rang its bell. The engine has already played the sound the session's settings ask for (or the
+    /// emulator has drawn its visual bell); this is for the host to draw attention to its window. Raised on the engine thread.
+    /// </summary>
+    public event EventHandler<SessionBellEventArgs>? Bell;
 
     /// <summary>The scrollback changed. Raised on the engine thread.</summary>
     public event EventHandler<SessionScrollbarEventArgs>? ScrollbarChanged;
@@ -385,6 +407,26 @@ public sealed unsafe partial class PuttySession : IDisposable
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         PuttyEngine.Check(NativeMethods.SessionResizeView(handle, widthPixels, heightPixels), nameof(ResizeView));
+    }
+
+    /// <summary>
+    /// The font the session's settings ask for (Window > Appearance): the name, the height (positive: points, negative:
+    /// pixels) and whether it is bold. The renderer takes its font from the host (<see cref="SetFont"/>); this says what to choose.
+    /// </summary>
+    public unsafe SettingsFont GetFont()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        int height;
+        int bold;
+        int length = NativeMethods.SessionGetFont(handle, null, 0, &height, &bold);
+        PuttyEngine.Check(Math.Min(0, length), nameof(GetFont));
+        byte[] bytes = new byte[length + 1];
+        fixed (byte* buffer = bytes)
+        {
+            PuttyEngine.Check(Math.Min(0, NativeMethods.SessionGetFont(handle, buffer, bytes.Length, &height, &bold)), nameof(GetFont));
+        }
+
+        return new SettingsFont(System.Text.Encoding.UTF8.GetString(bytes, 0, length), height, bold != 0, 0);
     }
 
     /// <summary>A different font or size. The terminal is refitted to the surface.</summary>
@@ -673,13 +715,13 @@ public sealed unsafe partial class PuttySession : IDisposable
     }
 
     [UnmanagedCallersOnly]
-    private static void OnBell(nint user)
+    private static void OnBell(nint user, int indicator)
     {
         try
         {
             if (From(user) is { } session)
             {
-                session.Bell?.Invoke(session, EventArgs.Empty);
+                session.Bell?.Invoke(session, new SessionBellEventArgs(indicator is >= 0 and <= 2 ? (BellIndicator)indicator : BellIndicator.Disabled));
             }
         }
         catch (Exception ex)

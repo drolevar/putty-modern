@@ -172,6 +172,9 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_session_set_font", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int SessionSetFont(nint session, string fontFamily, float sizePx);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_get_font")]
+    internal static unsafe partial int SessionGetFont(nint session, byte* name, int capacity, int* height, int* bold);
+
     [LibraryImport(Library, EntryPoint = "pe_session_terminal_geometry")]
     internal static partial int SessionTerminalGeometry(nint session, out NativeTerminalGeometry geometry);
 
@@ -307,7 +310,7 @@ internal unsafe struct NativeSessionEndpoint
 internal unsafe struct NativeTerminalEvents
 {
     public delegate* unmanaged<nint, byte*, void> Title;               // user, utf8 title
-    public delegate* unmanaged<nint, void> Bell;                       // user
+    public delegate* unmanaged<nint, int, void> Bell;                  // user, bell indicator setting
     public delegate* unmanaged<nint, int, int, int, void> Scrollbar;   // user, total, start, page
     public delegate* unmanaged<nint, char*, int, void> ClipboardWrite; // user, utf16 text, units
     public delegate* unmanaged<nint, void> ClipboardRequestPaste;      // user

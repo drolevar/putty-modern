@@ -26,11 +26,24 @@ public sealed class TerminalViewTests
         public readonly int CellWidth;
         public readonly int CellHeight;
 
-        public Rig(int width = 640, int height = 320, float size = 22)
+        /// <param name="registry">With one, the session is a saved one named "rig" with these settings (PuTTY's own registry
+        /// value names): a quick connection has only the built-in defaults, and the default bell would play a sound.</param>
+        public Rig(int width = 640, int height = 320, float size = 22, RegistrySandbox? registry = null,
+            params (string Name, object Value)[] settings)
         {
             Session = Engine.Run(() =>
             {
-                var session = new PuttySession("127.0.0.1", Server.Port, SessionProtocol.Raw);
+                PuttySession session;
+                if (registry is null)
+                {
+                    session = new PuttySession("127.0.0.1", Server.Port, SessionProtocol.Raw);
+                }
+                else
+                {
+                    registry.WriteSession("rig", "127.0.0.1", Server.Port, "raw", null, settings);
+                    session = PuttySession.OpenSaved("rig");
+                }
+
                 session.Start();
                 return session;
             });
@@ -173,16 +186,59 @@ public sealed class TerminalViewTests
             "the title never arrived");
     }
 
+    // The bell is the visual one (Beep = 2) in these tests, so that no sound is played on the machine that runs them.
+    private const int BellVisual = 2;
+    private const int BellDisabled = 0;
+
     [TestMethod]
-    public void The_bell_reaches_the_host()
+    public void The_bell_reaches_the_host_with_the_sessions_indicator_setting()
     {
-        using var rig = new Rig();
+        using var registry = new RegistrySandbox();
+        using var rig = new Rig(registry: registry, settings: [("Beep", BellVisual), ("BeepInd", 2)]);
+        var bells = new List<BellIndicator>();
+        rig.Engine.Run(() => rig.Session.Bell += (_, e) => { lock (bells) { bells.Add(e.Indicator); } });
+
+        rig.Send("\a");
+
+        Assert.IsTrue(EngineThread.WaitUntil(() => { lock (bells) { return bells.Count > 0; } }, Generous), "the bell never arrived");
+        lock (bells)
+        {
+            Assert.AreEqual(BellIndicator.Steady, bells[0]);
+        }
+    }
+
+    [TestMethod]
+    public void A_disabled_bell_does_not_reach_the_host()
+    {
+        using var registry = new RegistrySandbox();
+        using var rig = new Rig(registry: registry, settings: [("Beep", BellDisabled)]);
         int bells = 0;
         rig.Engine.Run(() => rig.Session.Bell += (_, _) => Interlocked.Increment(ref bells));
 
         rig.Send("\a");
+        rig.Send("done");
 
-        Assert.IsTrue(EngineThread.WaitUntil(() => Volatile.Read(ref bells) > 0, Generous), "the bell never arrived");
+        Assert.IsTrue(rig.WaitForCell(0, 0, p => p != Black, atLeast: 10), "the text after the bell never arrived");
+        Assert.AreEqual(0, Volatile.Read(ref bells));
+    }
+
+    [TestMethod]
+    public void The_font_a_session_asks_for_is_the_one_in_its_settings()
+    {
+        using (var rig = new Rig())
+        {
+            SettingsFont builtIn = rig.Engine.Run(() => rig.Session.GetFont());
+            Assert.AreEqual("Courier New", builtIn.Name, "PuTTY's default font");
+            Assert.AreEqual(10, builtIn.Height);
+            Assert.IsFalse(builtIn.Bold);
+        }
+
+        using var registry = new RegistrySandbox();
+        using var saved = new Rig(registry: registry, settings: [("Font", "Cascadia Mono"), ("FontHeight", 13), ("FontIsBold", 1), ("FontCharSet", 0)]);
+        SettingsFont font = saved.Engine.Run(() => saved.Session.GetFont());
+        Assert.AreEqual("Cascadia Mono", font.Name);
+        Assert.AreEqual(13, font.Height);
+        Assert.IsTrue(font.Bold);
     }
 
     [TestMethod]

@@ -12,14 +12,16 @@
  * (setup_draw_ctx returns false, so the emulator skips painting): that is a headless session.
  *
  * Not done yet: double-width and double-height lines are drawn at normal size over twice the
- * cells, clipboard and mouse mode are accepted and ignored (slice 2d), and the system bell,
+ * cells, clipboard and mouse mode are accepted and ignored (slice 2d), and
  * minimise/maximise/move/z-order requests are for the host, which is told only about the title,
  * the bell and the scrollbar.
  */
 
 #include <string.h>
 
+
 #include "putty.h"
+#include <playsoundapi.h>
 #include "terminal/terminal.h"
 #include "putty_engine.h"
 #include "engine_internal.h"
@@ -363,11 +365,36 @@ static void tw_set_scrollbar(TermWin *tw, int total, int start, int page)
     pe_session_notify_scrollbar(w->owner, total, start, page);
 }
 
+/*
+ * The sound is window.c's wintw_bell: MessageBeep-style bells are not cancelled by the next one, so at most one
+ * every 50 ms; a wave file plays asynchronously (and when it cannot be played the default sound is used from then
+ * on, with a note for the host instead of window.c's message box); the "PC speaker" is Beep(). A visual bell is
+ * drawn by the emulator itself (term_schedule_vbell). Drawing attention to the window (flashing its taskbar button)
+ * needs the window, so the host is told, with CONF_beep_ind.
+ */
 static void tw_bell(TermWin *tw, int mode)
 {
     pe_termwin *w = TW(tw);
+    if (mode == BELL_WAVEFILE && w->wavefile_failed)
+        mode = BELL_DEFAULT;
+    if (mode == BELL_DEFAULT || mode == BELL_PCSPEAKER) {
+        DWORD since = GetTickCount() - w->last_beep_time;
+        if (since < 50)
+            return;
+        if (mode == BELL_DEFAULT)
+            MessageBeep(MB_OK);
+        else
+            Beep(800, 100);
+        w->last_beep_time = GetTickCount();
+    } else if (mode == BELL_WAVEFILE) {
+        if (!PlaySoundW(w->bell_wavefile, NULL, SND_ASYNC | SND_FILENAME)) {
+            w->wavefile_failed = true;
+            pe_session_notify_warning(w->owner, "Unable to play the bell sound file; using the default sound instead");
+            MessageBeep(MB_OK);
+        }
+    }
     if (mode != BELL_DISABLED)
-        pe_session_notify_bell(w->owner);
+        pe_session_notify_bell(w->owner, w->beep_ind);
 }
 
 /*
@@ -509,6 +536,13 @@ void pe_termwin_use_settings(pe_termwin *w, Terminal *term, Conf *conf)
     w->bold_font = (bold_style & BOLD_STYLE_FONT) != 0;
     w->bold_colours = (bold_style & BOLD_STYLE_COLOUR) != 0;
     w->cursor_type = conf_get_int(conf, CONF_cursor_type);
+
+    w->beep_ind = conf_get_int(conf, CONF_beep_ind);
+    w->wavefile_failed = false;
+    w->bell_wavefile[0] = L'\0';
+    const Filename *wave = conf_get_filename(conf, CONF_bell_wavefile);
+    if (wave && wave->wpath)
+        wcsncpy_s(w->bell_wavefile, MAX_PATH, wave->wpath, _TRUNCATE);
 
     /* Which clipboards a selection goes to and which one a mouse paste reads (window.c: setup_clipboards). */
     term->n_mouse_select_clipboards = 1;

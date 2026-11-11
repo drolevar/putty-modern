@@ -27,11 +27,6 @@ namespace PuTTY.App;
 /// </remarks>
 internal sealed class TerminalViewController : IDisposable
 {
-    // Tried in order; Cascadia Mono ships with Windows 11 and Terminal, Consolas with every Windows.
-    private static readonly string[] FontFamilies = ["Cascadia Mono", "Consolas"];
-
-    private const float FontSizeDips = 15.0f;
-
     /// <summary>The AutomationId of the scrollbar, for UI Automation checks (tools/app-terminal-smoke.ps1).</summary>
     public const string ScrollBarAutomationId = "TerminalScrollBar";
 
@@ -55,6 +50,7 @@ internal sealed class TerminalViewController : IDisposable
     private bool flushing;
     private PuttySession? session;
     private string? fontFamily;
+    private float fontDips = TerminalFont.DefaultDips;
     private bool attached;
     private bool disposed;
     private bool updatingScrollBar;
@@ -205,7 +201,7 @@ internal sealed class TerminalViewController : IDisposable
         proxy.Margin = new Thickness(e.X / scaleX, e.Y / scaleY, 0, 0);
         proxy.Height = e.Height / scaleY;
         proxy.MinHeight = e.Height / scaleY;
-        proxy.FontSize = FontSizeDips;
+        proxy.FontSize = fontDips;
         if (fontFamily is not null)
         {
             proxy.FontFamily = new FontFamily(fontFamily);
@@ -264,6 +260,42 @@ internal sealed class TerminalViewController : IDisposable
         }
     }
 
+    /// <summary>
+    /// The session's font setting may have changed (Change Settings, Window > Appearance): use the font and size it asks
+    /// for now. The terminal is refitted to the view, so its size in cells follows.
+    /// </summary>
+    public void RefreshFont()
+    {
+        if (disposed || !attached || session is null)
+        {
+            return;
+        }
+
+        (string[] families, float dips) = TerminalFont.For(session);
+        if (families[0] == fontFamily && dips == fontDips)
+        {
+            return;
+        }
+
+        float sizePixels = dips * (float)panel.CompositionScaleX;
+        foreach (string family in families)
+        {
+            try
+            {
+                session.SetFont(family, sizePixels);
+            }
+            catch (InvalidOperationException)
+            {
+                continue;       // not installed; the next one
+            }
+
+            fontFamily = family;
+            fontDips = dips;
+            Resized?.Invoke();
+            return;
+        }
+    }
+
     /// <summary>Puts the keyboard focus on the terminal, for instance after a dialog closed.</summary>
     public void Focus() => proxy.Focus(FocusState.Programmatic);
 
@@ -284,20 +316,22 @@ internal sealed class TerminalViewController : IDisposable
             return;     // not laid out yet: OnPanelSizeChanged tries again
         }
 
-        float sizePixels = FontSizeDips * (float)panel.CompositionScaleX;
+        (string[] families, float dips) = TerminalFont.For(session);
+        float sizePixels = dips * (float)panel.CompositionScaleX;
         nint abi = ((IWinRTObject)panel).NativeObject.ThisPtr;
-        foreach (string family in FontFamilies)
+        foreach (string family in families)
         {
             try
             {
                 session.AttachPanelView(abi, width, height, family, sizePixels);
                 fontFamily = family;
+                fontDips = dips;
                 attached = true;
                 UpdateKeyTarget();
                 Resized?.Invoke();
                 return;
             }
-            catch (InvalidOperationException) when (family != FontFamilies[^1])
+            catch (InvalidOperationException) when (family != families[^1])
             {
                 // that font is not installed; try the next
             }
@@ -324,7 +358,7 @@ internal sealed class TerminalViewController : IDisposable
             if (fontFamily is not null)
             {
                 // The DPI scale may have changed, which changes the size of a font in pixels.
-                session.SetFont(fontFamily, FontSizeDips * (float)panel.CompositionScaleX);
+                session.SetFont(fontFamily, fontDips * (float)panel.CompositionScaleX);
             }
 
             Resized?.Invoke();

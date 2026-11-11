@@ -272,7 +272,8 @@ PE_API int32_t pe_session_enable_terminal(pe_session *session, int32_t columns, 
  */
 typedef struct pe_terminal_events {
     void (*title)(void *user, const char *utf8_title);
-    void (*bell)(void *user);
+    /* `indicator` is the session's "bell indicator" setting: 0 none, 1 flash the window, 2 steady (a few flashes). */
+    void (*bell)(void *user, int32_t indicator);
     void (*scrollbar)(void *user, int32_t total, int32_t start, int32_t page);
 
     /*
@@ -314,6 +315,13 @@ PE_API int32_t pe_session_resize_view(pe_session *session, int32_t width_px, int
 
 /* A different font or size; the terminal is refitted to the surface. */
 PE_API int32_t pe_session_set_font(pe_session *session, const wchar_t *font_family, float size_px);
+
+/*
+ * The font the session's settings (Window > Appearance) ask for: the name as UTF-8 (the returned length; copied up to
+ * `capacity` with a NUL when `name` is not NULL), the height (positive: points, negative: pixels) and whether it is
+ * bold. The renderer takes its font from the host (pe_session_set_font); this is what the host should choose.
+ */
+PE_API int32_t pe_session_get_font(pe_session *session, char *name, int32_t capacity, int32_t *height, int32_t *bold);
 
 typedef struct pe_terminal_geometry {
     int32_t columns;

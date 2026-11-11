@@ -89,6 +89,10 @@ typedef struct pe_termwin {
     int last_cursor_x, last_cursor_y;
     bool bold_font;
     bool bold_colours;
+    int beep_ind;                   /* CONF_beep_ind: B_IND_DISABLED, B_IND_FLASH or B_IND_STEADY, told to the host with a bell */
+    wchar_t bell_wavefile[MAX_PATH];    /* CONF_bell_wavefile, for BELL_WAVEFILE */
+    bool wavefile_failed;           /* the wave file could not be played: the default sound is used instead */
+    DWORD last_beep_time;           /* GetTickCount after the last MessageBeep-style bell */
     int cursor_x, cursor_y;
     bool raw_mouse_mode;
     int sb_total, sb_start, sb_page;
@@ -103,7 +107,10 @@ void pe_termwin_destroy(pe_termwin *w);
 void pe_session_unthrottle(void *owner, size_t bufsize);
 void pe_session_schedule_repaint(void *owner);
 void pe_session_notify_title(void *owner, const char *utf8_title);
-void pe_session_notify_bell(void *owner);
+/* `indicator` is CONF_beep_ind (0 none, 1 flash, 2 steady): whether the host should draw attention to its window. */
+void pe_session_notify_bell(void *owner, int indicator);
+/* A message for the host that is not fatal (the event log shows it). */
+void pe_session_notify_warning(void *owner, const char *text);
 void pe_session_notify_scrollbar(void *owner, int total, int start, int page);
 void pe_session_notify_clipboard_write(void *owner, const wchar_t *text, int units);
 void pe_session_notify_paste_request(void *owner);
