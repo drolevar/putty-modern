@@ -1,3 +1,4 @@
+using Digi21.WinUI.Docking;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using PuTTY.App.Settings;
@@ -11,18 +12,22 @@ public sealed partial class MainWindow : Window
 {
     public MainViewModel ViewModel { get; } = new();
 
-    private readonly TerminalViewController terminal;
     private readonly SessionListController sessions;
     private readonly SessionDetailsController details;
-    private SessionInteraction? interaction;
+
+    // One tab per open session. The welcome document (TerminalDocument, with the engine status) is closed when the first opens.
+    private readonly List<SessionTab> tabs = [];
+    private readonly Dictionary<DocumentWindow, SessionTab> tabOf = [];
+    private SessionTab? active;
+    private int tabCounter;
+    private bool welcomeClosed;
 
     public MainWindow()
     {
         InitializeComponent();
 
-        terminal = new TerminalViewController(TerminalHost);
         sessions = new SessionListController(SessionsHost);
-        sessions.OpenRequested += name => _ = OpenSavedAsync(name);
+        sessions.OpenRequested += OpenSaved;
         sessions.NewRequested += () => OpenSettings(null);
         sessions.EditRequested += name => OpenSettings(name);
         details = new SessionDetailsController(DetailsHost);
@@ -35,11 +40,37 @@ public sealed partial class MainWindow : Window
             }
         };
 
+        DockSite.WindowActivated += (_, e) =>
+        {
+            if (e.Window is DocumentWindow document && tabOf.TryGetValue(document, out SessionTab? tab))
+            {
+                Activate(tab);
+            }
+        };
+        DockSite.WindowClosed += (_, e) =>
+        {
+            if (e.Window is DocumentWindow document && tabOf.Remove(document, out SessionTab? tab))
+            {
+                tabs.Remove(tab);
+                if (ReferenceEquals(active, tab))
+                {
+                    active = null;
+                    details.Clear();
+                    Title = "PuTTY";
+                }
+
+                tab.Dispose();      // the tab was closed: its session ends
+            }
+        };
+
         Closed += (_, _) =>
         {
-            interaction?.Dispose();
-            terminal.Dispose();
-            terminal.Session?.Dispose();
+            foreach (SessionTab tab in tabs)
+            {
+                tab.Dispose();
+            }
+
+            tabs.Clear();
             App.StopEngine();
         };
 
@@ -65,7 +96,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        connected = true;
+        connected = true;      // TerminalHost.Loaded can come more than once
         PuttySessionOptions? options = target.UserName is null && target.KeyFile is null
             ? null
             : new PuttySessionOptions { UserName = target.UserName, KeyFile = target.KeyFile };
@@ -90,7 +121,7 @@ public sealed partial class MainWindow : Window
         }
         catch (InvalidOperationException ex)
         {
-            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the settings", ex.Message);
+            _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not open the settings", ex.Message);
             return;
         }
 
@@ -99,22 +130,16 @@ public sealed partial class MainWindow : Window
             if (savedName is not null && !dialog.LoadSavedSession(savedName))
             {
                 dialog.Dispose();
-                _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the settings", $"There is no saved session called \"{savedName}\" any more.");
+                _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not open the settings", $"There is no saved session called \"{savedName}\" any more.");
                 return;
             }
 
             var window = new SettingsWindow(dialog, savedName is null ? "New session" : $"Settings - {savedName}")
             {
-                Opened = async d =>
+                Opened = d =>
                 {
-                    string title = TitleFor(d);
-                    if (terminal.Session is { IsConnected: true } && !await ConfirmReplaceAsync(title))
-                    {
-                        return false;
-                    }
-
-                    StartSession(() => d.CreateSession(), title);
-                    return true;
+                    StartSession(() => d.CreateSession(), TitleFor(d));       // a tab of its own, beside any that are open
+                    return Task.FromResult(true);
                 },
             };
             window.Closed += (_, _) => sessions.Reload();       // a session saved or deleted there shows up here
@@ -124,7 +149,7 @@ public sealed partial class MainWindow : Window
         {
             // A bug in drawing one of PuTTY's controls must not take the application down, and must be seen.
             dialog.Dispose();
-            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the settings", ex.ToString());
+            _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not open the settings", ex.ToString());
         }
     }
 
@@ -134,10 +159,12 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void OpenChangeSettings()
     {
-        if (!App.EngineRunning || terminal.Session is not { IsConnected: true } session)
+        if (!App.EngineRunning || active is not { Session.IsConnected: true } tab)
         {
             return;
         }
+
+        PuttySession session = tab.Session;
 
         SettingsDialog dialog;
         try
@@ -146,20 +173,20 @@ public sealed partial class MainWindow : Window
         }
         catch (InvalidOperationException ex)
         {
-            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the session's settings", ex.Message);
+            _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not open the session's settings", ex.Message);
             return;
         }
 
         try
         {
-            var window = new SettingsWindow(dialog, $"Session settings - {TerminalDocument.Title}");
-            window.Closed += (_, _) => terminal.Focus();
+            var window = new SettingsWindow(dialog, $"Session settings - {tab.Title}");
+            window.Closed += (_, _) => tab.Terminal.Focus();
             window.Activate();
         }
         catch (Exception ex)
         {
             dialog.Dispose();
-            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the session's settings", ex.ToString());
+            _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not open the session's settings", ex.ToString());
         }
     }
 
@@ -178,15 +205,10 @@ public sealed partial class MainWindow : Window
         return "Session";
     }
 
-    /// <summary>Opens a saved session in the terminal; asks first if a connection is open, which it replaces.</summary>
-    private async Task OpenSavedAsync(string name)
+    /// <summary>Opens a saved session in a tab of its own.</summary>
+    private void OpenSaved(string name)
     {
         if (!App.EngineRunning)
-        {
-            return;
-        }
-
-        if (terminal.Session is { IsConnected: true } && !await ConfirmReplaceAsync(name))
         {
             return;
         }
@@ -198,65 +220,86 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// There is one terminal for now (tabs are the workspace slice), so opening another session replaces
-    /// the open one, which must not happen without the user''s say.
+    /// Starts a session in a new tab: a document with a terminal view of its own, beside the tabs that are open. false
+    /// (after telling the user) if it could not be started.
     /// </summary>
-    private async Task<bool> ConfirmReplaceAsync(string next)
+    private bool StartSession(Func<PuttySession> create, string title, string? description = null)
     {
-        var dialog = new ContentDialog
-        {
-            XamlRoot = TerminalHost.XamlRoot,
-            Title = "Close the open session?",
-            Content = $"Opening \"{next}\" closes the connection that is open now.",
-            PrimaryButtonText = "Close and open",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-        };
-        try
-        {
-            return await dialog.ShowAsync() == ContentDialogResult.Primary;
-        }
-        catch (Exception)
-        {
-            return false;       // another dialog is open: do nothing rather than guess
-        }
-    }
-
-    /// <summary>Starts a session in the terminal; false (after telling the user) if it could not be started.</summary>
-    private bool StartSession(Func<PuttySession> create, string documentTitle, string? description = null)
-    {
-        // The old session goes first: its renderer holds the terminal panel's swap chain.
-        interaction?.Dispose();
-        interaction = null;
-        terminal.Session?.Dispose();
-
         PuttySession? session = null;
+        TerminalViewController? terminal = null;
+        SessionInteraction? interaction = null;
         try
         {
             session = create();
-            // PuTTY's own default title already ends in " - PuTTY" ("host - PuTTY"); a title the server sets does not.
-            session.TitleChanged += (_, e) => Title = e.Title.EndsWith("PuTTY", StringComparison.Ordinal) ? e.Title : $"{e.Title} - PuTTY";
-            interaction = new SessionInteraction(session, () => TerminalHost.XamlRoot, terminal.Focus);
-            session.Start();
-            terminal.Show(session);
-            TerminalDocument.Title = documentTitle;
-            details.Show(documentTitle, description);
+            var host = new UserControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
+            terminal = new TerminalViewController(host);
+            var document = new DocumentWindow { Title = title, Content = host, SerializationId = $"doc.session.{++tabCounter}" };
+            interaction = new SessionInteraction(session, () => DockSite.XamlRoot, terminal.Focus);
+            var tab = new SessionTab(document, host, terminal, session, interaction, title, description);
+            session.TitleChanged += (_, e) =>
+            {
+                // PuTTY's own default title already ends in " - PuTTY" ("host - PuTTY"); a title the server sets does not.
+                tab.WindowTitle = e.Title.EndsWith("PuTTY", StringComparison.Ordinal) ? e.Title : $"{e.Title} - PuTTY";
+                if (ReferenceEquals(active, tab))
+                {
+                    Title = tab.WindowTitle;
+                }
+            };
             session.Closed += (_, _) =>
             {
-                if (ReferenceEquals(terminal.Session, session))
+                tab.Connected = false;
+                if (ReferenceEquals(active, tab))
                 {
                     details.SetConnected(false);
                 }
             };
+            session.Start();
+
+            tabs.Add(tab);
+            tabOf[document] = tab;
+            DockSite.OpenDocument(document);
+            CloseWelcomeDocument();
+            terminal.Show(session);
+            document.Activate();
+            Activate(tab);
             return true;
         }
         catch (InvalidOperationException ex)
         {
-            session?.Dispose();
             interaction?.Dispose();
-            interaction = null;
-            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not connect", ex.Message);
+            terminal?.Dispose();
+            session?.Dispose();
+            _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not connect", ex.Message);
             return false;
+        }
+    }
+
+    /// <summary>A tab became the active one: the details panel, the title bar and the keyboard follow it.</summary>
+    private void Activate(SessionTab tab)
+    {
+        active = tab;
+        details.Show(tab.Title, tab.Description);
+        details.SetConnected(tab.Connected);
+        Title = tab.WindowTitle;
+        tab.Terminal.Focus();
+    }
+
+    /// <summary>The first session replaces the welcome document (the engine status that was there before any session).</summary>
+    private void CloseWelcomeDocument()
+    {
+        if (welcomeClosed)
+        {
+            return;
+        }
+
+        welcomeClosed = true;
+        try
+        {
+            DockSite.CloseWindow(TerminalDocument);
+        }
+        catch (InvalidOperationException)
+        {
+            // already closed by the user
         }
     }
 }

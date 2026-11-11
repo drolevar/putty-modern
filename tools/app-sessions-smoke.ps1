@@ -235,18 +235,21 @@ try {
         Check 'the running session took the new window title, which PuTTY sets through its own reconfiguration' $titled
         Check 'and is still connected' ((Ui @('get-property', 'SessionDetailsStatus')) -match 'Connected')
 
-        # --- open beta while alpha is connected: the app asks first
+        # --- open beta while alpha is connected: a second tab, and nothing is asked or closed
         Check 'the session just opened is at the top of RECENT' ((Ui @('search', 'Recent:e2e alpha')) -match 'Found [1-9]')
         Check 'and the workspace file counts the opening' ((Read-Workspace).sessions.'e2e alpha'.openCount -ge 1 -and $null -ne (Read-Workspace).sessions.'e2e alpha'.lastOpened)
 
+        $alphaClient = $accept.Result
+        function Is-Closed($client) { $client.Client.Poll(300000, [System.Net.Sockets.SelectMode]::SelectRead) -and $client.Client.Available -eq 0 }
         [void](Ui @('invoke', 'Session:e2e beta'))
         [void](Ui @('invoke', 'OpenSessionButton'))
-        Check 'opening a second session while one is connected asks first' (Wait-Element 'Close and open' 15)
-        [void](Ui @('invoke', 'Close and open'))
         $acceptBeta = $beta.AcceptTcpClientAsync()
         Check 'the second session connects' ($acceptBeta.Wait(20000))
+        Check 'opening a second session while one is connected does not ask anything' ((Ui @('search', 'Close and open')) -match 'Found 0')
+        Check 'there is a tab for each session' ((Wait-Element 'e2e beta' 15 @('--type', 'TabItem')) -and (Ui @('search', 'e2e alpha', '--type', 'TabItem')) -match 'Found [1-9]')
         if ($acceptBeta.IsCompleted) {
-            $streamBeta = $acceptBeta.Result.GetStream()
+            $betaClient = $acceptBeta.Result
+            $streamBeta = $betaClient.GetStream()
             $bytes = [Text.Encoding]::UTF8.GetBytes("$esc[31mBETA IS CONNECTED$esc[0m`r`n")
             $streamBeta.Write($bytes, 0, $bytes.Length)
             Start-Sleep -Seconds 3
@@ -255,17 +258,38 @@ try {
             $red = [SessionsSmokeNative]::CountColour($second, 187, 0, 0)
             $greenAfter = [SessionsSmokeNative]::CountColour($second, 0, 187, 0)
             Check 'the terminal now shows the second session' ($red -gt 30) "($red red pixels)"
-            Check 'and no longer the first' ($greenAfter -lt 5) "($greenAfter green pixels)"
-        }
+            Check 'and not the first, which is in its own tab' ($greenAfter -lt 5) "($greenAfter green pixels)"
+            Check 'the first connection stays open' (-not (Is-Closed $alphaClient))
+            Check 'the details panel names the second session' ((Ui @('get-property', 'SessionDetailsName')) -match 'e2e beta')
 
-        # the first server noticed that its client went away
-        $closed = $false
-        $deadline = (Get-Date).AddSeconds(10)
-        while ((Get-Date) -lt $deadline -and -not $closed) {
-            try { $closed = ($stream.Read((New-Object byte[] 16), 0, 16) -eq 0) } catch { $closed = $true }
-            if (-not $closed) { Start-Sleep -Milliseconds 200 }
+            # --- back to the first tab: its terminal is there as it was
+            [void](Ui @('invoke', 'e2e alpha', '--type', 'TabItem'))
+            Start-Sleep -Seconds 3
+            $back = $Screenshot -replace '\.png$', '-back.png'
+            & winapp ui screenshot -a PuTTY.App --output $back 2>&1 | Out-Null
+            $greenBack = [SessionsSmokeNative]::CountColour($back, 0, 187, 0)
+            $redBack = [SessionsSmokeNative]::CountColour($back, 187, 0, 0)
+            Check 'choosing the first tab shows its terminal again' ($greenBack -gt 30) "($greenBack green pixels)"
+            Check 'and not the second' ($redBack -lt 5) "($redBack red pixels)"
+            Check 'the details panel follows the tab' ((Ui @('get-property', 'SessionDetailsName')) -match 'e2e alpha')
+
+            # --- closing a tab ends its session and only that one
+            $tree = Ui @('inspect', '--depth', '16')
+            $closeSlug = if ($tree -match 'TabItem "e2e alpha"[\s\S]*?(btn-partclosebutton-[0-9a-f]+)') { $Matches[1] } else { $null }
+            Check 'the first tab has a close button' ($null -ne $closeSlug)
+            if ($closeSlug) {
+                [void](Ui @('invoke', $closeSlug))
+                $closed = $false
+                $deadline = (Get-Date).AddSeconds(10)
+                while ((Get-Date) -lt $deadline -and -not $closed) {
+                    $closed = Is-Closed $alphaClient
+                    if (-not $closed) { Start-Sleep -Milliseconds 300 }
+                }
+                Check 'closing the first tab closed its connection' $closed
+                Check 'and its tab is gone' ((Ui @('search', 'e2e alpha', '--type', 'TabItem')) -match 'Found 0')
+                Check 'the second session was not touched' ((-not (Is-Closed $betaClient)) -and (Ui @('search', 'e2e beta', '--type', 'TabItem')) -match 'Found [1-9]')
+            }
         }
-        Check 'the first connection was closed when it was replaced' $closed
     }
 }
 finally {
