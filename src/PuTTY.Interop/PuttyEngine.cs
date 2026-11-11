@@ -13,6 +13,12 @@ public enum EngineWarningKind
     OldKeyFormat = 1,
 }
 
+/// <summary>The engine is about to end the process: what is known about why.</summary>
+public sealed class EngineFatalEventArgs(string message) : EventArgs
+{
+    public string Message { get; } = message;
+}
+
 /// <summary>A warning that belongs to no session.</summary>
 public sealed class EngineWarningEventArgs(EngineWarningKind kind, string message) : EventArgs
 {
@@ -66,6 +72,33 @@ public static class PuttyEngine
     {
         Check(NativeMethods.Init(), nameof(Initialize));
         RegisterWarningHandler();
+        RegisterFatalHandler();
+    }
+
+    /// <summary>
+    /// Raised on the thread that hit a fatal error, just before the process ends: PuTTY's own fatal errors (out of memory
+    /// and the like), a failed assertion in its code, any abort. The text is what is known; for an assertion it says the
+    /// details went to standard error. A handler may log, save what can be kept (the app saves its workspace) and tell the
+    /// user, must not rely on the engine being sound, and must not throw. The process ends when it returns. Raised at most once.
+    /// </summary>
+    public static event EventHandler<EngineFatalEventArgs>? Fatal;
+
+    private static unsafe void RegisterFatalHandler() =>
+        Check(NativeMethods.SetFatalHandler(&OnFatal, 0), nameof(Fatal));
+
+    [UnmanagedCallersOnly]
+    private static unsafe void OnFatal(nint user, byte* message)
+    {
+        try
+        {
+            string text = Marshal.PtrToStringUTF8((nint)message) ?? string.Empty;
+            Fatal?.Invoke(null, new EngineFatalEventArgs(text));
+        }
+        catch (Exception ex)
+        {
+            // An exception must never cross back into the engine; and nothing more can be done about this one.
+            Debug.WriteLine($"PuttyEngine.Fatal handler threw: {ex}");
+        }
     }
 
     /// <summary>
@@ -122,6 +155,13 @@ public static class PuttyEngine
         /// <summary>Schedules a PuTTY timer that fires after <paramref name="delay"/>.</summary>
         public static void ScheduleTimer(TimeSpan delay) =>
             Check(NativeMethods.DiagScheduleTimer(ToMilliseconds(delay)), nameof(ScheduleTimer));
+
+        /// <summary>A failed assertion in the engine's own code: <see cref="Fatal"/> is raised and the process aborts. Only for checking a host's handler in a process of its own.</summary>
+        public static void RaiseAssertion() => Check(NativeMethods.DiagAssert(), nameof(RaiseAssertion));
+
+        /// <summary>Takes the path of a real fatal error with this text: <see cref="Fatal"/> is raised and the process ends. Only for checking a host's handler in a process of its own.</summary>
+        public static void RaiseFatal(string message) =>
+            Check(NativeMethods.DiagFatal(message), nameof(RaiseFatal));
 
         /// <summary>Makes PuTTY's core raise a warning of the given kind, as it would itself.</summary>
         public static void RaiseWarning(EngineWarningKind kind) =>

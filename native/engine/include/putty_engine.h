@@ -430,7 +430,23 @@ typedef void (*pe_warning_fn)(void *user, int32_t kind, const char *message);
 
 PE_API int32_t pe_set_warning_handler(pe_warning_fn handler, void *user);
 
+/*
+ * Called on the thread that hit a fatal error, just before the process ends: PuTTY's modalfatalbox (out of memory and
+ * the like), a failed assertion of its code, or any abort. UTF-8 text valid only during the call. The host may log, save
+ * what it can keep and tell the user, and must not need the engine to be sound; the process ends when the handler returns.
+ * Called at most once. Dropped by pe_shutdown().
+ */
+typedef void (*pe_fatal_fn)(void *user, const char *message);
+
+PE_API int32_t pe_set_fatal_handler(pe_fatal_fn handler, void *user);
+
 /* ----- Diagnostics, used by tests to check the event loop ------------------------- */
+
+/* A failed assertion in the engine's own code: the process aborts. For checking a host's handler in a process of its own. */
+PE_API int32_t pe_diag_assert(void);
+
+/* Takes the path of a real fatal error (modalfatalbox) with this text: the process ends. For checking a host's handler in a process of its own. */
+PE_API int32_t pe_diag_fatal(const char *message);
 
 typedef struct pe_diag_counters {
     uint32_t callbacks_run;     /* diagnostic deferred callbacks that have run */

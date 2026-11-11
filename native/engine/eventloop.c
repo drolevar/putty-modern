@@ -157,6 +157,7 @@ PE_API int32_t pe_init(void)
         settings_set_default_port(ssh ? ssh->default_port : 0);
     }
     winselgui_set_hwnd(hwnd);
+    pe_fatal_install();
     pe_handle_waits_start(hwnd);
     request_callback_notifications(notify_callbacks_pending, NULL);
 
@@ -190,6 +191,7 @@ PE_API int32_t pe_shutdown(void)
     winselgui_clear_hwnd();
     DestroyWindow(pe.hwnd);
     pe_warnings_reset();
+    pe_fatal_reset();
     memset(&pe, 0, sizeof(pe));
     return PE_OK;
 }

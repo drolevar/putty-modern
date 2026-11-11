@@ -208,6 +208,15 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_set_warning_handler")]
     internal static unsafe partial int SetWarningHandler(delegate* unmanaged<nint, int, byte*, void> handler, nint user);
 
+    [LibraryImport(Library, EntryPoint = "pe_set_fatal_handler")]
+    internal static unsafe partial int SetFatalHandler(delegate* unmanaged<nint, byte*, void> handler, nint user);
+
+    [LibraryImport(Library, EntryPoint = "pe_diag_assert")]
+    internal static partial int DiagAssert();
+
+    [LibraryImport(Library, EntryPoint = "pe_diag_fatal", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int DiagFatal(string message);
+
     [LibraryImport(Library, EntryPoint = "pe_diag_raise_warning")]
     internal static partial int DiagRaiseWarning(int kind);
 

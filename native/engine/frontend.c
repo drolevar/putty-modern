@@ -7,6 +7,8 @@
  * elsewhere because they are vtables the linker cannot check.
  */
 
+#include <assert.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,10 +45,71 @@ static void debug_message(const char *kind, const char *message)
     OutputDebugStringA("\n");
 }
 
+/* ----- Fatal errors ------------------------------------------------------------------------ */
+
 /*
- * Called for unrecoverable, process-wide errors (for example out of memory,
- * from utils/out_of_memory.c). It must not return. A later version reports the
- * message to the host application before exiting.
+ * Some errors end the whole process, and with it every session: PuTTY's modalfatalbox (out of memory and the like),
+ * an assertion (PuTTY's assertions are live and mean it), anything else that makes the C runtime abort. The host can
+ * register a handler (pe_set_fatal_handler) that is called first, on the thread that hit the error, to say what happened,
+ * keep what can be kept (the app saves its workspace, so the tabs come back at the next start) and tell the user.
+ * It is called at most once, and what it does must not need the engine to be sound.
+ */
+static struct {
+    pe_fatal_fn handler;
+    void *user;
+    bool reporting;
+} fatal_sink;
+
+void pe_fatal_reset(void)
+{
+    memset(&fatal_sink, 0, sizeof(fatal_sink));
+}
+
+PE_API int32_t pe_set_fatal_handler(pe_fatal_fn handler, void *user)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    fatal_sink.handler = handler;
+    fatal_sink.user = user;
+    return PE_OK;
+}
+
+/* Tells the host, once. Returns true if a handler was there to be told. */
+static bool report_fatal(const char *text)
+{
+    if (!fatal_sink.handler || fatal_sink.reporting)
+        return false;
+    fatal_sink.reporting = true;
+    fatal_sink.handler(fatal_sink.user, text);
+    return true;
+}
+
+/*
+ * An assertion or an abort in the C runtime ends in SIGABRT. The handler tells the host and then lets the abort go
+ * on, so that a debugger or Windows Error Reporting still sees the crash. The assertion's own text goes to standard
+ * error (see pe_fatal_install), which a GUI process has nowhere to show.
+ */
+static void abort_handler(int signal_number)
+{
+    (void)signal_number;
+    signal(SIGABRT, SIG_DFL);
+    report_fatal("The engine hit an internal error (an assertion of PuTTY's code failed, or the process was aborted); "
+                 "the details went to the standard error stream. Run the app from a console to see them.");
+}
+
+/* Called by pe_init: no message box for an assertion or an abort (the host's handler and Windows's own reporting are the way), and the handler above. */
+void pe_fatal_install(void)
+{
+    _set_error_mode(_OUT_TO_STDERR);
+    _set_abort_behavior(_CALL_REPORTFAULT, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    signal(SIGABRT, abort_handler);
+}
+
+/*
+ * Called for unrecoverable, process-wide errors (for example out of memory, from utils/out_of_memory.c). It must not
+ * return. With a host handler the host is told and the process ends at once with exit code 3 (no crash report: this
+ * is PuTTY's own, expected way to die); without one it aborts.
  */
 NORETURN void modalfatalbox(const char *fmt, ...)
 {
@@ -57,6 +120,9 @@ NORETURN void modalfatalbox(const char *fmt, ...)
 
     fprintf(stderr, "PuTTY engine fatal error: %s\n", msg);
     debug_message("fatal error", msg);
+    signal(SIGABRT, SIG_DFL);       /* the abort below is not news after this */
+    if (report_fatal(msg))
+        TerminateProcess(GetCurrentProcess(), 3);
     sfree(msg);
     abort();
 }
@@ -64,7 +130,30 @@ NORETURN void modalfatalbox(const char *fmt, ...)
 /* Terminates the process; PuTTY expects this never to return. */
 NORETURN void cleanup_exit(int code)
 {
+    char text[96];
+    snprintf(text, sizeof(text), "PuTTY's code asked the process to exit (code %d)", code);
+    if (report_fatal(text))
+        TerminateProcess(GetCurrentProcess(), (UINT)code);
     exit(code);
+}
+
+/* A test hook: a failed assertion in the engine's own code, the way PuTTY's assertions fail (NDEBUG is never defined), so the host's handling of an abort can be checked in a process of its own. */
+PE_API int32_t pe_diag_assert(void)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    assert(!"a test assertion in the engine");
+    return PE_OK;
+}
+
+/* A test hook: the path of a real fatal error, so the host's handling can be checked in a process of its own. */
+PE_API int32_t pe_diag_fatal(const char *message)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    modalfatalbox("%s", message ? message : "test");
 }
 
 /*

@@ -38,6 +38,8 @@ void pe_sessions_close_all(void);
 
 /* Drops the warning handler. Called by pe_shutdown. */
 void pe_warnings_reset(void);
+void pe_fatal_reset(void);          /* frontend.c: drops the host's fatal handler (pe_shutdown) */
+void pe_fatal_install(void);        /* frontend.c: the SIGABRT handler and the C runtime's abort behaviour (pe_init) */
 
 /* handlewait.c: the engine's replacement for PuTTY's handle-wait.c, which runs the callbacks of handle-io.c and others. */
 #define PE_WM_HANDLE_WAIT (WM_APP + 101)

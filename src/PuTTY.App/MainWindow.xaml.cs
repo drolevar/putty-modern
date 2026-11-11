@@ -311,7 +311,7 @@ public sealed partial class MainWindow : Window
     /// Saves how the panels and document groups are laid out, and which session was open in which document, for the
     /// next start. Runs when the window is closing, while everything is still there to read.
     /// </summary>
-    private void SaveWorkspace()
+    internal void SaveWorkspace()
     {
         if (!App.EngineRunning || startedWithTarget)
         {
