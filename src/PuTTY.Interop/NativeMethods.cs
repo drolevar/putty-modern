@@ -175,6 +175,9 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_session_disconnect")]
     internal static partial int SessionDisconnect(nint session);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_get_screen_text")]
+    internal static unsafe partial int SessionGetScreenText(nint session, char* buffer, int capacity, int* rows, int* columns);
+
     [LibraryImport(Library, EntryPoint = "pe_session_get_font")]
     internal static unsafe partial int SessionGetFont(nint session, byte* name, int capacity, int* height, int* bold);
 

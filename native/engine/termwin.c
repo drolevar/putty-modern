@@ -89,6 +89,91 @@ static bool is_variation_selector(wchar_t c)
     return c >= 0xFE00 && c <= 0xFE0F;
 }
 
+/*
+ * What is on the screen, as text, for hosts that cannot read pixels (UI Automation, a screen reader): every character the
+ * emulator has the TermWin draw is also written into a grid of code points. The emulator redraws exactly the cells that
+ * change, so the grid stays what the screen shows (the scrollback position included). A combining character is not
+ * kept (it is drawn over its base); a wide character takes two cells, the second left empty.
+ */
+static void shadow_put(pe_termwin *w, int col, int row, uint32_t code_point, int cells)
+{
+    int rows = w->term ? w->term->rows : 0;
+    int cols = w->term ? w->term->cols : 0;
+    if (rows <= 0 || cols <= 0)
+        return;
+    if (!w->shadow || w->shadow_rows != rows || w->shadow_cols != cols) {
+        sfree(w->shadow);
+        w->shadow = snewn((size_t)rows * (size_t)cols, uint32_t);
+        memset(w->shadow, 0, (size_t)rows * (size_t)cols * sizeof(uint32_t));
+        w->shadow_rows = rows;
+        w->shadow_cols = cols;
+    }
+    if (row < 0 || row >= rows || col < 0 || col >= cols)
+        return;
+    uint32_t *cell = w->shadow + (size_t)row * (size_t)cols + (size_t)col;
+    cell[0] = code_point;
+    for (int i = 1; i < cells && col + i < cols; i++)
+        cell[i] = 0;
+}
+
+int32_t pe_termwin_screen_text(const pe_termwin *w, wchar_t *buffer, int32_t capacity, int32_t *rows, int32_t *columns)
+{
+    if (rows)
+        *rows = w->shadow_rows;
+    if (columns)
+        *columns = w->shadow_cols;
+    if (!w->shadow)
+        return 0;
+
+    /* the last row with anything but blanks in it */
+    int last = -1;
+    for (int y = w->shadow_rows - 1; y >= 0 && last < 0; y--) {
+        for (int x = 0; x < w->shadow_cols; x++) {
+            uint32_t c = w->shadow[(size_t)y * (size_t)w->shadow_cols + (size_t)x];
+            if (c != 0 && c != ' ') {
+                last = y;
+                break;
+            }
+        }
+    }
+
+    int32_t length = 0;
+    for (int y = 0; y <= last; y++) {
+        const uint32_t *row = w->shadow + (size_t)y * (size_t)w->shadow_cols;
+        int end = w->shadow_cols;
+        while (end > 0 && (row[end - 1] == 0 || row[end - 1] == ' '))
+            end--;
+        for (int x = 0; x < end; x++) {
+            uint32_t c = row[x];
+            if (c == 0)
+                continue;
+            wchar_t units[2];
+            int n = 1;
+            if (c >= 0x10000) {
+                c -= 0x10000;
+                units[0] = (wchar_t)(0xD800 + (c >> 10));
+                units[1] = (wchar_t)(0xDC00 + (c & 0x3FF));
+                n = 2;
+            } else {
+                units[0] = (wchar_t)c;
+            }
+            for (int k = 0; k < n; k++) {
+                if (buffer && length + 1 < capacity)
+                    buffer[length] = units[k];
+                length++;
+            }
+        }
+        if (y < last) {
+            if (buffer && length + 1 < capacity)
+                buffer[length] = L'\n';
+            length++;
+        }
+    }
+    if (buffer && capacity > 0)
+        buffer[length < capacity ? length : capacity - 1] = L'\0';
+    return length;
+}
+
 static void draw_text_run(pe_termwin *w, int x, int y, wchar_t *text, int len,
                           unsigned long attr, int lattr, truecolour tc)
 {
@@ -181,6 +266,8 @@ static void draw_text_run(pe_termwin *w, int x, int y, wchar_t *text, int len,
             units = 2;
         if (text[i] != L' ')
             pe_render_glyph(r, col, y, &text[i], units, cells_per_char, fg, style);
+        if (!(attr & TATTR_COMBINING))
+            shadow_put(w, col, y, units == 2 ? 0x10000 + (((uint32_t)text[i] - 0xD800) << 10) + ((uint32_t)text[i + 1] - 0xDC00) : (uint32_t)text[i], cells_per_char);
         col += cells_per_char;
         i += units - 1;
     }
@@ -574,4 +661,6 @@ void pe_termwin_destroy(pe_termwin *w)
 {
     pe_termwin_set_renderer(w, NULL);
     w->term = NULL;
+    sfree(w->shadow);
+    w->shadow = NULL;
 }

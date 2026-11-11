@@ -176,6 +176,14 @@ try {
     & winapp ui screenshot -a PuTTY.App --output $before 2>&1 | Out-Null
     $greenBefore = [FeaturesSmokeNative]::CountColour($before, 0, 187, 0)
     Check 'its text is on the screen' ($greenBefore -gt 30) "($greenBefore green pixels)"
+    # UI Automation cannot see a swap chain, so the terminal keeps its text in an element of its own (TerminalScreenText)
+    $deadline = (Get-Date).AddSeconds(10)
+    $readable = $false
+    while ((Get-Date) -lt $deadline -and -not $readable) {
+        $readable = (Ui @('get-property', 'TerminalScreenText')) -match 'DISCONNECT ME'
+        if (-not $readable) { Start-Sleep -Milliseconds 400 }
+    }
+    Check 'UI Automation can read the text of the terminal' $readable
     [void](Ui @('invoke', 'DisconnectButton'))
     Check 'Disconnect ends the connection (the server sees it close)' (Is-Closed $accepted.Result)
     Check 'the panel says it is not connected' ((Ui @('get-property', 'SessionDetailsStatus')) -match 'Not connected')
@@ -184,6 +192,7 @@ try {
     & winapp ui screenshot -a PuTTY.App --output $after 2>&1 | Out-Null
     $greenAfter = [FeaturesSmokeNative]::CountColour($after, 0, 187, 0)
     Check 'the tab keeps its screen' ($greenAfter -gt 30) "($greenAfter green pixels)"
+    Check 'and its text stays readable through UI Automation' ((Ui @('get-property', 'TerminalScreenText')) -match 'DISCONNECT ME')
     $accepted = $disc.AcceptTcpClientAsync()
     [void](Ui @('invoke', 'ReconnectButton'))
     Check 'Reconnect connects again' ($accepted.Wait(20000))

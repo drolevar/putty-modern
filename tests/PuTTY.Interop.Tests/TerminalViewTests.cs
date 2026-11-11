@@ -186,6 +186,50 @@ public sealed class TerminalViewTests
             "the title never arrived");
     }
 
+    /// <summary>The screen text, once it is the expected text (the paint comes a moment after the server's bytes).</summary>
+    private static string WaitForScreenText(Rig rig, string expected)
+    {
+        string last = string.Empty;
+        EngineThread.WaitUntil(() =>
+        {
+            last = rig.Engine.Run(() => rig.Session.GetScreenText());
+            return last == expected;
+        }, Generous);
+        return last;
+    }
+
+    [TestMethod]
+    public void The_screen_text_is_what_the_terminal_shows_row_by_row_with_the_blanks_at_the_ends_left_out()
+    {
+        using var rig = new Rig();
+
+        rig.Send("Hello   \r\n\r\nWorld");
+
+        Assert.AreEqual("Hello\n\nWorld", WaitForScreenText(rig, "Hello\n\nWorld"));
+    }
+
+    [TestMethod]
+    public void The_screen_text_follows_a_cleared_screen_and_new_text()
+    {
+        using var rig = new Rig();
+        rig.Send("old text");
+        Assert.AreEqual("old text", WaitForScreenText(rig, "old text"));
+
+        rig.Send("\x1b[2J\x1b[HNext");
+
+        Assert.AreEqual("Next", WaitForScreenText(rig, "Next"));
+    }
+
+    [TestMethod]
+    public void The_screen_text_holds_wide_characters_and_characters_outside_the_basic_plane_whole()
+    {
+        using var rig = new Rig();
+
+        rig.Send("a\u4F60\u597D b\U0001F600");
+
+        Assert.AreEqual("a\u4F60\u597D b\U0001F600", WaitForScreenText(rig, "a\u4F60\u597D b\U0001F600"));
+    }
+
     // The bell is the visual one (Beep = 2) in these tests, so that no sound is played on the machine that runs them.
     private const int BellVisual = 2;
     private const int BellDisabled = 0;

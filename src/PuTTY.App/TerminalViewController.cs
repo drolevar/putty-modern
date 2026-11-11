@@ -1,6 +1,7 @@
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -30,10 +31,23 @@ internal sealed class TerminalViewController : IDisposable
     /// <summary>The AutomationId of the scrollbar, for UI Automation checks (tools/app-terminal-smoke.ps1).</summary>
     public const string ScrollBarAutomationId = "TerminalScrollBar";
 
+    /// <summary>The AutomationId of the element that carries the terminal's text for UI Automation clients (screen readers, checks).</summary>
+    public const string ScreenTextAutomationId = "TerminalScreenText";
+
     private readonly UserControl host;
     private readonly Grid layout = new();
     private readonly SwapChainPanel panel = new();
     private readonly ScrollBar scrollBar = new();
+
+    /// <summary>
+    /// The terminal is a swap chain, which UI Automation cannot read: a screen reader would find an empty control. So the
+    /// text on the screen (<see cref="PuttySession.GetScreenText"/>) is also kept in this element, which is invisible, takes no
+    /// pointer and is in the automation tree, named after its text like any static text; and what is added to the screen is
+    /// announced through UI Automation's notification event (see <see cref="RefreshScreenText"/>).
+    /// </summary>
+    private readonly TextBlock screenText = new();
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? screenTimer;
+    private string lastScreenText = string.Empty;
 
     /// <summary>
     /// What makes input methods work. A custom control has no text store, so Windows' text services (TSF) leave an IME
@@ -98,9 +112,56 @@ internal sealed class TerminalViewController : IDisposable
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(scrollBar, 1);
+        screenText.Opacity = 0.01;          // like the proxy box: at 0 some of what XAML does for an element is skipped
+        screenText.IsHitTestVisible = false;
+        screenText.HorizontalAlignment = HorizontalAlignment.Left;
+        screenText.VerticalAlignment = VerticalAlignment.Top;
+        screenText.Width = 1;
+        screenText.Height = 1;
+        screenText.TextWrapping = TextWrapping.NoWrap;
+        AutomationProperties.SetAutomationId(screenText, ScreenTextAutomationId);
+        AutomationProperties.SetLocalizedControlType(screenText, "terminal screen");
+
         layout.Children.Add(panel);
         layout.Children.Add(proxy);
+        layout.Children.Add(screenText);
         layout.Children.Add(scrollBar);
+    }
+
+    /// <summary>
+    /// Brings the automation text up to date (the screen as it is now) and announces what was added: output that scrolled
+    /// in as its new lines, text appended to the screen as that text. Nothing is announced for a redraw (a full-screen
+    /// program, a cleared screen). Called by a timer while the view is on screen.
+    /// </summary>
+    private void RefreshScreenText()
+    {
+        if (disposed || !attached || session is null || !host.IsLoaded)
+        {
+            return;
+        }
+
+        string text;
+        try
+        {
+            text = session.GetScreenText();
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+
+        if (text == lastScreenText)
+        {
+            return;
+        }
+
+        string added = ScreenTextDifference.Added(lastScreenText, text);
+        lastScreenText = text;
+        screenText.Text = text;
+        if (added.Length > 0 && FrameworkElementAutomationPeer.FromElement(screenText) is { } peer)
+        {
+            peer.RaiseNotificationEvent(AutomationNotificationKind.ItemAdded, AutomationNotificationProcessing.MostRecent, added, "TerminalOutput");
+        }
     }
 
     /// <summary>The proxy box looks like nothing until something is being composed in it, and takes no mouse.</summary>
@@ -226,6 +287,15 @@ internal sealed class TerminalViewController : IDisposable
         Detach();
         session = newSession;
         attached = false;
+        lastScreenText = string.Empty;
+        screenText.Text = string.Empty;
+        if (screenTimer is null && host.DispatcherQueue is { } queue)
+        {
+            screenTimer = queue.CreateTimer();
+            screenTimer.Interval = TimeSpan.FromMilliseconds(250);
+            screenTimer.Tick += (_, _) => RefreshScreenText();
+            screenTimer.Start();
+        }
 
         // A tab that is not on screen yet (a restored workspace opens the others behind the first one) has no panel size
         // and so no view, but its server is already talking: give the session its terminal now, at a default size, so that
@@ -617,6 +687,8 @@ internal sealed class TerminalViewController : IDisposable
         }
 
         disposed = true;
+        screenTimer?.Stop();
+        screenTimer = null;
         PuttySession.SetKeyboardTarget(null);
         Detach();
         session = null;

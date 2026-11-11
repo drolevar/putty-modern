@@ -104,12 +104,16 @@ typedef struct pe_termwin {
     int cursor_x, cursor_y;
     bool raw_mouse_mode;
     int sb_total, sb_start, sb_page;
+    uint32_t *shadow;               /* what is drawn, one code point per cell (0: none, a wide character's second cell), for pe_session_get_screen_text */
+    int shadow_rows, shadow_cols;
 } pe_termwin;
 
 void pe_termwin_init(pe_termwin *w, void *owner);
 void pe_termwin_use_settings(pe_termwin *w, Terminal *term, Conf *conf);
 void pe_termwin_set_renderer(pe_termwin *w, pe_renderer *renderer);
 void pe_termwin_destroy(pe_termwin *w);
+/* The text on the screen as the host sees it drawn, rows separated by newlines, trailing blanks and blank rows trimmed; returns the length in UTF-16 units. */
+int32_t pe_termwin_screen_text(const pe_termwin *w, wchar_t *buffer, int32_t capacity, int32_t *rows, int32_t *columns);
 
 /* What the TermWin needs from, or reports to, its session. `owner` is the pe_session. (session.c) */
 void pe_session_unthrottle(void *owner, size_t bufsize);

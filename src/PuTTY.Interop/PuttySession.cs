@@ -430,6 +430,30 @@ public sealed unsafe partial class PuttySession : IDisposable
     }
 
     /// <summary>
+    /// The text the terminal shows now (what is drawn, the scrollback position as it is), rows separated by newlines, trailing
+    /// blanks and empty rows at the end left out. For what cannot read pixels: UI Automation, a screen reader, a check.
+    /// Empty before the first paint. Needs a view (<see cref="AttachPanelView"/> or <see cref="AttachOffscreenView"/>).
+    /// </summary>
+    public unsafe string GetScreenText()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        int length = NativeMethods.SessionGetScreenText(handle, null, 0, null, null);
+        PuttyEngine.Check(Math.Min(0, length), nameof(GetScreenText));
+        if (length == 0)
+        {
+            return string.Empty;
+        }
+
+        char[] buffer = new char[length + 1];
+        fixed (char* text = buffer)
+        {
+            PuttyEngine.Check(Math.Min(0, NativeMethods.SessionGetScreenText(handle, text, buffer.Length, null, null)), nameof(GetScreenText));
+        }
+
+        return new string(buffer, 0, length);
+    }
+
+    /// <summary>
     /// Ends the connection and keeps the session: its terminal, with the screen and the scrollback, stays and can be
     /// <see cref="Clone"/>d for a reconnect. <see cref="Closed"/> is raised (once) and nothing more can be sent. Does nothing
     /// when the connection is over already. Called from inside one of the session's own events it takes effect a moment later.

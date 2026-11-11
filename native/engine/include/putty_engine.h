@@ -328,6 +328,14 @@ PE_API int32_t pe_session_resize_view(pe_session *session, int32_t width_px, int
 PE_API int32_t pe_session_set_font(pe_session *session, const wchar_t *font_family, float size_px);
 
 /*
+ * The text the terminal shows (what is drawn, the scrollback position as it is), rows separated by newlines, trailing
+ * blanks and empty rows at the end left out; `rows` and `columns` (each may be NULL) get the terminal's size. Returns the
+ * length in UTF-16 units; copies up to `capacity` units with a NUL when `buffer` is not NULL. For hosts that cannot read
+ * pixels (UI Automation, screen readers, checks). Nothing is known before the first paint.
+ */
+PE_API int32_t pe_session_get_screen_text(pe_session *session, wchar_t *buffer, int32_t capacity, int32_t *rows, int32_t *columns);
+
+/*
  * The font the session's settings (Window > Appearance) ask for: the name as UTF-8 (the returned length; copied up to
  * `capacity` with a NUL when `name` is not NULL), the height (positive: points, negative: pixels) and whether it is
  * bold. The renderer takes its font from the host (pe_session_set_font); this is what the host should choose.

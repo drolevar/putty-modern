@@ -1297,6 +1297,21 @@ PE_API int32_t pe_session_get_font(pe_session *s, char *name, int32_t capacity, 
     return (int32_t)length;
 }
 
+/*
+ * The text the terminal shows (what is drawn, with the scrollback position as it is), rows separated by newlines, trailing
+ * blanks and empty rows at the end left out. Returns the length in UTF-16 units; copies up to `capacity` units with a NUL
+ * when `buffer` is not NULL. For hosts that cannot read pixels (UI Automation). Only a session with a view has any.
+ */
+PE_API int32_t pe_session_get_screen_text(pe_session *s, wchar_t *buffer, int32_t capacity, int32_t *rows, int32_t *columns)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!session_is_live(s) || !s->term)
+        return PE_ERR_STATE;
+    return pe_termwin_screen_text(&s->termwin, buffer, capacity, rows, columns);
+}
+
 PE_API int32_t pe_session_terminal_geometry(pe_session *s, pe_terminal_geometry *out)
 {
     int32_t rc = pe_check_engine_thread();
