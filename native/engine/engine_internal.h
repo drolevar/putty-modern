@@ -39,6 +39,12 @@ void pe_sessions_close_all(void);
 /* Drops the warning handler. Called by pe_shutdown. */
 void pe_warnings_reset(void);
 
+/* handlewait.c: the engine's replacement for PuTTY's handle-wait.c, which runs the callbacks of handle-io.c and others. */
+#define PE_WM_HANDLE_WAIT (WM_APP + 101)
+void pe_handle_wait_fire(uintptr_t id);
+void pe_handle_waits_start(HWND window);
+void pe_handle_waits_stop(void);
+
 /* ----- Keyboard input (keys.c) ----------------------------------------------------------- */
 
 /*

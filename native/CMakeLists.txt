@@ -93,7 +93,7 @@ set(PUTTY_CORE_SOURCES
   windows/no-jump-list.c           # PuTTY's own stub: no taskbar jump list yet
   config.c dialog.c)               # the settings dialog's description and its control tree (engine/configbox.c is the front end)
 
-set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/termwin.c engine/render.cpp engine/diag_keys.c engine/text.c engine/configbox.c engine/core_refs.c)
+set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/termwin.c engine/render.cpp engine/diag_keys.c engine/text.c engine/configbox.c engine/core_refs.c engine/handlewait.c)
 
 # Not stubs/no-ca-config.c: that is for programs WITHOUT SSH code; ours links ssh/ca-config.c,
 # which provides the real has_ca_config_box and setup_ca_config_box.

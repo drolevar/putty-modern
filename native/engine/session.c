@@ -549,6 +549,14 @@ static void session_destroy(pe_session *s)
     if (s->term)
         term_provide_backend(s->term, NULL);
     if (s->backend) {
+        /*
+         * A proxy that is still negotiating has borrowed the backend's Seat (a TempSeat). PuTTY's raw_free (and
+         * its Telnet and Rlogin counterparts) frees that TempSeat first and only then closes the socket, whose
+         * cleanup gives the seat back through the very pointer that was just freed: a double free. So give it back
+         * first. It does nothing when no seat was borrowed.
+         */
+        if (s->backend->interactor)
+            interactor_return_seat(s->backend->interactor);
         backend_free(s->backend);
         s->backend = NULL;      /* the null TermWin may still be asked to unthrottle */
     }

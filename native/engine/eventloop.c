@@ -19,7 +19,7 @@
 #include "putty_engine.h"
 #include "engine_internal.h"
 
-#define PE_WM_RUN_CALLBACKS (WM_APP + 100)
+#define PE_WM_RUN_CALLBACKS (WM_APP + 100)   /* PE_WM_HANDLE_WAIT (WM_APP + 101) is in engine_internal.h */
 #define PE_MAX_DRAIN        1000    /* bound on callbacks run while shutting down */
 
 static const wchar_t pe_window_class[] = L"PuTTYEngineMessageWindow";
@@ -81,6 +81,9 @@ static LRESULT CALLBACK engine_window_proc(HWND hwnd, UINT message, WPARAM wpara
         return 0;
       case PE_WM_RUN_CALLBACKS:
         run_callbacks_message();
+        return 0;
+      case PE_WM_HANDLE_WAIT:
+        pe_handle_wait_fire((uintptr_t)wparam);
         return 0;
     }
     return DefWindowProcW(hwnd, message, wparam, lparam);
@@ -154,6 +157,7 @@ PE_API int32_t pe_init(void)
         settings_set_default_port(ssh ? ssh->default_port : 0);
     }
     winselgui_set_hwnd(hwnd);
+    pe_handle_waits_start(hwnd);
     request_callback_notifications(notify_callbacks_pending, NULL);
 
     pe.initialised = true;
@@ -182,6 +186,7 @@ PE_API int32_t pe_shutdown(void)
         ;
 
     pe_keys_reset();
+    pe_handle_waits_stop();
     winselgui_clear_hwnd();
     DestroyWindow(pe.hwnd);
     pe_warnings_reset();
