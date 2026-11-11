@@ -416,6 +416,48 @@ public sealed class SettingsDialogTests
     }
 
     [TestMethod]
+    public void A_preference_list_can_be_reordered_and_the_new_order_is_what_gets_saved()
+    {
+        using var registry = new RegistrySandbox();
+        using var rig = new Rig();
+        SettingsControl ciphers = rig.Dialog.Groups.Where(g => g.Path == "Connection/SSH/Cipher").SelectMany(g => g.Controls)
+            .Single(c => c.Type == SettingsControlType.ListBox && c.Flags.HasFlag(SettingsControlFlags.DragList));
+        string[] before = [.. rig.Run(() => rig.Dialog.GetList(ciphers.Id)).Select(e => e.Text)];
+        Assert.IsTrue(before.Length >= 5, string.Join(", ", before));
+
+        rig.Run(() => rig.Dialog.Move(ciphers.Id, 0, before.Length - 1));      // the favourite becomes the last choice
+
+        string[] after = [.. rig.Run(() => rig.Dialog.GetList(ciphers.Id)).Select(e => e.Text)];
+        CollectionAssert.AreEqual(before.Skip(1).Append(before[0]).ToArray(), after);
+
+        // What PuTTY keeps is the order: save the session and look at the saved cipher preference.
+        rig.Run(() =>
+        {
+            rig.Dialog.SetText(rig.SavedName.Id, "reordered");
+            rig.Dialog.Act(rig.Find("Session", "Save", SettingsControlType.Button).Id);
+        });
+        string cipherLine = registry.Snapshot().Split('\n').Single(l => l.StartsWith("Cipher(String)=", StringComparison.Ordinal));
+        string[] saved = cipherLine["Cipher(String)=".Length..].Split(',');
+        Assert.AreEqual(before.Length, saved.Count(x => x != "warn"), cipherLine);
+
+        // Moves outside the list, or of a list that is not re-orderable, are refused rather than corrupting it.
+        Assert.ThrowsExactly<InvalidOperationException>(() => rig.Run(() => rig.Dialog.Move(ciphers.Id, 0, 999)));
+        Assert.ThrowsExactly<InvalidOperationException>(() => rig.Run(() => rig.Dialog.Move(rig.SavedList.Id, 0, 1)));
+    }
+
+    [TestMethod]
+    public void The_installed_font_families_are_listed_for_a_font_chooser()
+    {
+        using var engine = new EngineThread();
+
+        IReadOnlyList<string> families = engine.Run(() => InstalledFonts.Families());
+
+        Assert.IsTrue(families.Count > 20, $"only {families.Count} families");
+        CollectionAssert.Contains(families.ToArray(), "Consolas");
+        Assert.AreEqual(families.Count, families.Distinct(StringComparer.Ordinal).Count(), "no duplicates");
+        Assert.IsFalse(families.Any(f => f.StartsWith('@')), "vertical variants are left out");
+    }
+    [TestMethod]
     public void Text_with_non_ASCII_characters_survives_the_trip()
     {
         using var registry = new RegistrySandbox();

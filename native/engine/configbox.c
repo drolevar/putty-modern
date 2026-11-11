@@ -814,6 +814,25 @@ PE_API int32_t pe_config_user_action(pe_config *c, int32_t id)
     return PE_OK;
 }
 
+PE_API int32_t pe_config_user_move(pe_config *c, int32_t id, int32_t from, int32_t to)
+{
+    USER_CALL_PROLOGUE(c, k, id);
+    if (k->ctrl->type != CTRL_LISTBOX || !k->ctrl->listbox.draglist || from < 0 || from >= k->nitems ||
+        to < 0 || to >= k->nitems)
+        return PE_ERR_FAILED;
+    if (from != to) {
+        pe_list_item moved = k->items[from];
+        if (from < to)
+            memmove(&k->items[from], &k->items[from + 1], sizeof(pe_list_item) * (to - from));
+        else
+            memmove(&k->items[to + 1], &k->items[to], sizeof(pe_list_item) * (from - to));
+        k->items[to] = moved;
+    }
+    /* PuTTY's handlers read the whole order back on a value change (the cipher preference list does). */
+    run_handler(c, k, EVENT_VALCHANGE);
+    return PE_OK;
+}
+
 PE_API int32_t pe_config_user_set_file(pe_config *c, int32_t id, const char *utf8_path)
 {
     USER_CALL_PROLOGUE(c, k, id);

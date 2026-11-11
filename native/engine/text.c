@@ -6,6 +6,8 @@
  */
 
 #include "putty.h"
+#include "tree234.h"
+#include "putty_engine.h"
 #include "engine_internal.h"
 
 /* Text PuTTY gives us is UTF-8 only when it says so; otherwise it is in the ANSI code page. */
@@ -45,4 +47,64 @@ char *pe_text_from_utf8(const char *utf8, bool want_utf8)
         out[0] = '\0';
     sfree(wide);
     return out;
+}
+
+/* ----- Installed fonts (for the font chooser) ----------------------------------------------- */
+
+struct font_enum_state {
+    pe_font_fn callback;
+    void *user;
+    tree234 *seen;
+    int count;
+};
+
+static int font_name_cmp(void *a, void *b)
+{
+    return strcmp((const char *)a, (const char *)b);
+}
+
+static int CALLBACK font_enum_proc(const LOGFONTW *lf, const TEXTMETRICW *tm, DWORD type, LPARAM param)
+{
+    (void)tm; (void)type;
+    struct font_enum_state *st = (struct font_enum_state *)param;
+    if (lf->lfFaceName[0] == L'@')              /* vertical writing variants */
+        return 1;
+    int len = WideCharToMultiByte(CP_UTF8, 0, lf->lfFaceName, -1, NULL, 0, NULL, NULL);
+    if (len <= 1)
+        return 1;
+    char *name = snewn(len, char);
+    WideCharToMultiByte(CP_UTF8, 0, lf->lfFaceName, -1, name, len, NULL, NULL);
+    if (find234(st->seen, name, NULL)) {        /* the same family arrives once per script */
+        sfree(name);
+        return 1;
+    }
+    add234(st->seen, name);
+    st->callback(st->user, name);
+    st->count++;
+    return 1;
+}
+
+PE_API int32_t pe_fonts_enumerate(pe_font_fn callback, void *user)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!callback)
+        return PE_ERR_FAILED;
+
+    struct font_enum_state st = { callback, user, newtree234(font_name_cmp), 0 };
+    HDC dc = GetDC(NULL);
+    LOGFONTW filter;
+    memset(&filter, 0, sizeof(filter));
+    filter.lfCharSet = DEFAULT_CHARSET;
+    EnumFontFamiliesExW(dc, &filter, font_enum_proc, (LPARAM)&st, 0);
+    ReleaseDC(NULL, dc);
+
+    char *name;
+    while ((name = (char *)index234(st.seen, 0)) != NULL) {
+        delpos234(st.seen, 0);
+        sfree(name);
+    }
+    freetree234(st.seen);
+    return st.count;
 }

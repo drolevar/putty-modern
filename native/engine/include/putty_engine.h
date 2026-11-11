@@ -521,6 +521,8 @@ PE_API int32_t pe_config_user_set_radio(pe_config *config, int32_t id, int32_t b
  * replaces the selection. */
 PE_API int32_t pe_config_user_select(pe_config *config, int32_t id, int32_t index, int32_t selected);
 PE_API int32_t pe_config_user_action(pe_config *config, int32_t id);                          /* button; list double click */
+/* The user dragged the entry at `from` of a re-orderable list (PE_CTRLF_DRAGLIST) to position `to`. */
+PE_API int32_t pe_config_user_move(pe_config *config, int32_t id, int32_t from, int32_t to);
 PE_API int32_t pe_config_user_set_file(pe_config *config, int32_t id, const char *utf8_path);
 PE_API int32_t pe_config_user_set_font(pe_config *config, int32_t id, const char *name, int32_t height,
                                        int32_t bold, int32_t charset);
@@ -537,6 +539,13 @@ PE_API int32_t pe_config_list_item(pe_config *config, int32_t id, int32_t index,
 PE_API int32_t pe_config_get_file(pe_config *config, int32_t id, char *buffer, int32_t capacity);
 PE_API int32_t pe_config_get_font(pe_config *config, int32_t id, char *name, int32_t capacity, int32_t *height,
                                   int32_t *bold, int32_t *charset);
+
+/* Called once per installed font family by pe_fonts_enumerate; `name` is UTF-8, valid during the call. */
+typedef void (*pe_font_fn)(void *user, const char *name);
+
+/* Lists the installed font families (no duplicates, vertical "@" variants left out), unsorted, for a font
+ * chooser. Returns how many were reported, or a negative error code. */
+PE_API int32_t pe_fonts_enumerate(pe_font_fn callback, void *user);
 
 /* Opens a session with the settings as edited (what Open does). The `events` and `user` are those of
  * pe_session_open. PE_ERR_FAILED if the settings name no host. */
