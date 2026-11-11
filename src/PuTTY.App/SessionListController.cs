@@ -51,7 +51,7 @@ internal sealed class SessionListController
         open.IsEnabled = false;
         open.Click += (_, _) => OpenSelected();
         AutomationProperties.SetAutomationId(open, OpenId);
-        AutomationProperties.SetName(open, "Open session");      // PuTTY's settings window has an Open of its own
+        AutomationProperties.SetName(open, "Open saved session");      // the settings window has an "Open session" of its own
 
         create.Content = "New...";
         create.Click += (_, _) => NewRequested?.Invoke();

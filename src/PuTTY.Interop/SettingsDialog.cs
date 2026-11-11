@@ -252,6 +252,31 @@ public sealed unsafe class SettingsDialog : IDisposable
     public void ColourChosen(int id, (int R, int G, int B)? colour) =>
         Check(NativeMethods.ConfigColourResult(Handle, id, colour is null ? 0 : 1, colour?.R ?? 0, colour?.G ?? 0, colour?.B ?? 0), nameof(ColourChosen));
 
+    /// <summary>
+    /// Loads a saved session (or <c>Default Settings</c>) into every page by doing what the user does: pick it in the
+    /// Session page's list and press Load. False if the list has no such entry. PuTTY's own handler does the loading.
+    /// </summary>
+    public bool LoadSavedSession(string name)
+    {
+        SettingsControl[] session = [.. groups.Where(g => g.Path == "Session").SelectMany(g => g.Controls)];
+        SettingsControl? list = session.FirstOrDefault(c => c.Type == SettingsControlType.ListBox && !c.IsDropDown);
+        SettingsControl? load = session.FirstOrDefault(c => c.Type == SettingsControlType.Button && c.Label == "Load");
+        if (list is null || load is null)
+        {
+            return false;
+        }
+
+        int at = GetList(list.Id).ToList().FindIndex(e => e.Text == name);
+        if (at < 0)
+        {
+            return false;
+        }
+
+        Select(list.Id, at);
+        Act(load.Id);
+        return true;
+    }
+
     // ----- What the controls hold ---------------------------------------------------------------
 
     /// <summary>The text of an edit box or a line of text.</summary>

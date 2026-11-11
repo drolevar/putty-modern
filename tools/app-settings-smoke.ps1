@@ -92,11 +92,21 @@ try {
     Check 'the panel offers New' (Wait-Element 'NewSessionButton')
     [void](Ui @('invoke', 'NewSessionButton'))
     Check "the settings window shows PuTTY's pages" (Wait-Element 'SettingsPages')
-    # The list is virtualised, so only the pages in view are in the tree: check the first ones.
-    foreach ($page in 'Session', 'Logging', 'Terminal', 'Keyboard', 'Window', 'Colours', 'Connection') {
-        Check "the page list has $page" ((Ui @('search', $page, '--type', 'ListItem')) -match 'Found [1-9]')
+    # The pages are a tree: the top level and the open branch (Session, with Logging) are in view.
+    foreach ($page in 'Session', 'Logging', 'Terminal', 'Window', 'Connection') {
+        Check "the page tree has $page" ((Ui @('search', $page, '--type', 'TreeItem')) -match 'Found [1-9]')
     }
+    Check 'the search box is there' ((Ui @('search', 'Find a setting')) -match 'Found [1-9]')
     Check 'the host name box is there' (Wait-Element 'Host Name (or IP address)' 10 @('--type', 'Edit'))
+    # A picture of the window, to compare with the Figma frame "Session configuration" (artifacts\spike\app-settings-*.png).
+    New-Item -ItemType Directory -Force -Path (Join-Path $root 'artifacts\spike') | Out-Null
+    & winapp ui screenshot -a PuTTY.App --output (Join-Path $root 'artifacts\spike\app-settings-session.png') 2>&1 | Out-Null
+    # Choosing a page in the tree shows that page's controls (check boxes are switches, named after PuTTY's labels).
+    [void](Ui @('invoke', 'Terminal', '--type', 'TreeItem'))
+    Check 'choosing Terminal in the tree shows its controls' (Wait-Element 'Auto wrap mode initially on' 15)
+    & winapp ui screenshot -a PuTTY.App --output (Join-Path $root 'artifacts\spike\app-settings-terminal.png') 2>&1 | Out-Null
+    [void](Ui @('invoke', 'Session', '--type', 'TreeItem'))
+    Check 'and Session brings the host name box back' (Wait-Element 'Host Name (or IP address)' 15 @('--type', 'Edit'))
     Check 'and the port box, filled with the SSH default by PuTTY''s own handler' ((Ui @('get-value', 'Port', '--type', 'Edit')) -match '22')
 
     # --- edit: host, port, a name for the session; Save writes PuTTY's storage
@@ -113,7 +123,7 @@ try {
     Check 'and the protocol PuTTY chose' ($stored.Protocol -eq 'ssh') "($($stored.Protocol))"
 
     # --- Open: the session starts with what was typed (the SSH dialogs of slice 3 follow)
-    [void](Ui @('invoke', 'Open', '--type', 'Button'))
+    [void](Ui @('invoke', 'Open session', '--type', 'Button'))
     Check 'Open closes the settings window' (Gone 'SettingsPages')
     Check 'the host key of the typed host is asked about' (Wait-Element 'Connect Once' 30)
     [void](Ui @('invoke', 'Connect Once'))

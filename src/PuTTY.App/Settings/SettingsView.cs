@@ -1,4 +1,3 @@
-using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -10,19 +9,23 @@ using Windows.UI;
 namespace PuTTY.App.Settings;
 
 /// <summary>
-/// Draws PuTTY's configuration box from the description the engine gives (<see cref="SettingsDialog"/>): a
-/// list of pages on the left, the groups of the selected page on the right, Open and Cancel at the bottom.
+/// Draws PuTTY's configuration box from the description the engine gives (<see cref="SettingsDialog"/>), laid
+/// out as in the Figma sketch "Session configuration": a navigation pane (title, "Find a setting", a tree of
+/// the pages) on the left; on the right a breadcrumb, the page title and subtitle, one card per group of
+/// controls, and a bar with Restore defaults, Cancel, Save and Open session.
 /// Nothing here knows what a setting means: PuTTY's own handlers keep the controls consistent (choosing a
 /// protocol changes the port), and this class only shows the state it reads and reports what the user does.
 /// </summary>
 /// <remarks>
 /// Built from code, with no XAML and no subclass of a control, and every control constructed here, which is
-/// what NativeAOT needs (CLAUDE.md). Pages are built the first time they are shown and then kept; a change
-/// to a control on a page that was never shown costs nothing, because building the page reads the state.
+/// what NativeAOT needs (CLAUDE.md). The look is the theme's: standard Fluent controls and theme brushes, which
+/// is what the sketch is drawn with. Pages are built the first time they are shown and then kept; a change to
+/// a control on a page that was never shown costs nothing, because building the page reads the state.
 /// </remarks>
 internal sealed partial class SettingsView
 {
-    private const double PageIndent = 16;
+    private const string RootTitle = "Configuration";
+    private const string DefaultSettings = "Default Settings";
 
     private readonly SettingsDialog dialog;
     private readonly Func<XamlRoot?> xamlRoot;
@@ -30,15 +33,28 @@ internal sealed partial class SettingsView
     private readonly Dictionary<int, Widget> widgets = [];
     private readonly Dictionary<string, FrameworkElement> builtPages = [];
     private readonly List<string> pagePaths = [];
-    private readonly ListView pageList = new();
+    private readonly Dictionary<string, TreeViewNode> nodeOfPath = [];
+    private readonly Dictionary<TreeViewNode, string> pathOfNode = [];
+    private readonly List<SearchEntry> searchIndex = [];
+    private readonly Dictionary<string, SearchEntry> searchByDisplay = [];
+    private readonly TreeView tree = new();
+    private readonly AutoSuggestBox search = new();
+    private readonly BreadcrumbBar breadcrumb = new();
+    private readonly TextBlock pageTitle = new();
+    private readonly TextBlock pageSubtitle = new();
+    private readonly StackPanel pageContent = new();
     private readonly ScrollViewer pageHost = new();
     private readonly Grid root = new();
     private bool updating;
+    private bool navigating;
+    private string? currentPath;
 
     /// <summary>What the host needs to keep per control to bring it up to date.</summary>
     private sealed class Widget(SettingsControl control)
     {
         public SettingsControl Control { get; } = control;
+
+        public FrameworkElement? Root { get; set; }
 
         public Action Refresh { get; set; } = () => { };
 
@@ -46,6 +62,8 @@ internal sealed partial class SettingsView
 
         public Func<bool>? Focus { get; set; }
     }
+
+    private sealed record SearchEntry(string Display, string Path, int ControlId);
 
     public SettingsView(SettingsDialog dialog, Func<XamlRoot?> xamlRoot, Func<nint> windowHandle)
     {
@@ -61,8 +79,10 @@ internal sealed partial class SettingsView
         dialog.ColourRequested += (id, r, g, b) => _ = ChooseColourAsync(id, r, g, b);
         dialog.Ended += go => Ended?.Invoke(go);
 
-        BuildPageList();
+        FindPages();
+        BuildSearchIndex();
         Layout();
+        Navigate(pagePaths.Count > 0 ? pagePaths[0] : string.Empty);
     }
 
     /// <summary>The whole dialog.</summary>
@@ -71,59 +91,211 @@ internal sealed partial class SettingsView
     /// <summary>The dialog is over (Open or Cancel, or a double-clicked saved session): true to go ahead.</summary>
     public event Action<bool>? Ended;
 
-    // ----- Frame ----------------------------------------------------------------------------------
+    // ----- Theme -----------------------------------------------------------------------------------
+
+    /// <summary>A brush of the theme (WinUI's resources), or null if this theme has none of that name.</summary>
+    private static Brush? ThemeBrush(string key) =>
+        Application.Current.Resources.TryGetValue(key, out object? value) ? value as Brush : null;
+
+    private static TextBlock Secondary(string text, double size = 12)
+    {
+        var block = new TextBlock { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap };
+        if (ThemeBrush("TextFillColorSecondaryBrush") is { } brush)
+        {
+            block.Foreground = brush;
+        }
+
+        return block;
+    }
+
+    // ----- Frame -------------------------------------------------------------------------------------
 
     private void Layout()
     {
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(230) });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(256) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        Grid.SetRow(pageList, 0);
-        pageList.Margin = new Thickness(8, 8, 0, 8);
-        root.Children.Add(pageList);
+        Grid navigation = BuildNavigation();
+        root.Children.Add(navigation);
 
-        pageHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-        pageHost.Padding = new Thickness(20, 12, 24, 12);
-        Grid.SetColumn(pageHost, 1);
-        root.Children.Add(pageHost);
+        var content = new Grid();
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetColumn(content, 1);
+        root.Children.Add(content);
 
-        // Open and Cancel are PuTTY's controls in a group on no page: shown at the bottom, right-aligned.
-        var footer = new StackPanel
+        // The header (breadcrumb, title, subtitle) scrolls with the cards, as the page is one column.
+        breadcrumb.ItemClicked += (_, e) => OnBreadcrumbClicked(e.Index);
+        pageTitle.FontSize = 28;
+        pageTitle.FontWeight = FontWeights.SemiBold;
+        pageTitle.Margin = new Thickness(0, 6, 0, 0);
+        pageSubtitle.FontSize = 14;
+        pageSubtitle.TextWrapping = TextWrapping.Wrap;
+        if (ThemeBrush("TextFillColorSecondaryBrush") is { } secondary)
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(12),
+            pageSubtitle.Foreground = secondary;
+        }
+
+        pageContent.Spacing = 12;
+        pageContent.Margin = new Thickness(0, 24, 0, 0);
+        var page = new StackPanel { Margin = new Thickness(32, 12, 32, 24), MaxWidth = 864 };
+        page.Children.Add(breadcrumb);
+        page.Children.Add(pageTitle);
+        page.Children.Add(pageSubtitle);
+        page.Children.Add(pageContent);
+        pageHost.Content = page;
+        pageHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        content.Children.Add(pageHost);
+
+        FrameworkElement actions = BuildActions();
+        Grid.SetRow(actions, 1);
+        content.Children.Add(actions);
+    }
+
+    /// <summary>The navigation pane: "Settings", "Find a setting", the PAGES caption, the tree, About and Help.</summary>
+    private Grid BuildNavigation()
+    {
+        // Rows: the title, the search box, the PAGES caption, the tree (takes what is left), About and Help.
+        var nav = new Grid();
+        nav.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        nav.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        nav.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        nav.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        nav.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var title = new TextBlock { Text = "Settings", FontSize = 25, FontWeight = FontWeights.SemiBold, Margin = new Thickness(24, 14, 0, 0) };
+        nav.Children.Add(title);
+
+        search.PlaceholderText = "Find a setting";
+        search.QueryIcon = new SymbolIcon(Symbol.Find);
+        search.Margin = new Thickness(16, 16, 16, 0);
+        AutomationProperties.SetAutomationId(search, "SettingsSearch");
+        AutomationProperties.SetName(search, "Find a setting");
+        search.TextChanged += OnSearchTextChanged;
+        search.QuerySubmitted += OnSearchSubmitted;
+        Grid.SetRow(search, 1);
+        nav.Children.Add(search);
+
+        var caption = new TextBlock { Text = "PAGES", FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(18, 16, 0, 4) };
+        if (ThemeBrush("TextFillColorSecondaryBrush") is { } secondary)
+        {
+            caption.Foreground = secondary;
+        }
+
+        Grid.SetRow(caption, 2);
+        nav.Children.Add(caption);
+
+        tree.SelectionMode = TreeViewSelectionMode.Single;
+        tree.Margin = new Thickness(8, 0, 0, 0);
+        AutomationProperties.SetAutomationId(tree, "SettingsPages");
+        AutomationProperties.SetName(tree, "Pages");
+        BuildTree();
+        tree.SelectionChanged += (_, _) => OnTreeSelectionChanged();
+        Grid.SetRow(tree, 3);
+        nav.Children.Add(tree);
+
+        var footer = new Grid { Margin = new Thickness(24, 10, 24, 12) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        footer.Children.Add(Secondary("About PuTTY"));
+        var help = new HyperlinkButton
+        {
+            Content = "Help",
+            Padding = new Thickness(0),
+            NavigateUri = new Uri("https://the.earth.li/~sgtatham/putty/latest/htmldoc/"),
         };
+        Grid.SetColumn(help, 1);
+        footer.Children.Add(help);
+        Grid.SetRow(footer, 4);
+        nav.Children.Add(footer);
+        return nav;
+    }
+
+    /// <summary>The bar under the page: Restore defaults on the left; Cancel, Save and Open session on the right.</summary>
+    private FrameworkElement BuildActions()
+    {
+        var bar = new Grid { Padding = new Thickness(32, 0, 32, 0), Height = 76 };
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var restore = new HyperlinkButton { Content = "Restore defaults", Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetAutomationId(restore, "RestoreDefaults");
+        restore.Click += (_, _) =>
+        {
+            // PuTTY has no such button: it is the Load of "Default Settings", which is always in the list.
+            dialog.LoadSavedSession(DefaultSettings);
+        };
+        bar.Children.Add(restore);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, VerticalAlignment = VerticalAlignment.Center };
         foreach (SettingsGroup group in dialog.Groups.Where(g => g.Path.Length == 0))
         {
-            foreach (SettingsControl control in group.Controls.Where(c => c.Type == SettingsControlType.Button).OrderBy(c => c.Flags.HasFlag(SettingsControlFlags.Cancel) ? 1 : 0))
+            foreach (SettingsControl control in group.Controls.Where(c => c.Type == SettingsControlType.Button && c.Flags.HasFlag(SettingsControlFlags.Cancel)))
             {
-                FrameworkElement button = Build(control);
-                if (control.Flags.HasFlag(SettingsControlFlags.Default) && button is Button primary)
-                {
-                    // The framework's own style for a primary button: it follows the theme and the accent colour.
-                    // (Not the accent colour read from the resources: unboxing that boxed WinRT struct throws
-                    // InvalidCastException under NativeAOT. A Style is a class, and is kept known in AotTypeAnchors.)
-                    if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out object? accent) && accent is Style accentStyle)
-                    {
-                        primary.Style = accentStyle;
-                    }
-                }
-
-                button.MinWidth = 88;
-                footer.Children.Add(button);
+                FrameworkElement cancel = Build(control);
+                cancel.MinWidth = 92;
+                buttons.Children.Add(cancel);
             }
         }
 
-        Grid.SetRow(footer, 1);
-        Grid.SetColumnSpan(footer, 2);
-        root.Children.Add(footer);
+        // Save is PuTTY's own Save button of the Session page ("Saved Sessions" names the session); this is a second way to it.
+        SettingsControl? saveControl = dialog.Controls.FirstOrDefault(c => c.Type == SettingsControlType.Button && c.Label == "Save" && dialog.Groups[c.Group].Path == "Session");
+        if (saveControl is not null)
+        {
+            var save = new Button { Content = "Save", MinWidth = 92 };
+            AutomationProperties.SetAutomationId(save, "SaveSession");
+            AutomationProperties.SetName(save, "Save session");
+            save.Click += (_, _) => dialog.Act(saveControl.Id);
+            buttons.Children.Add(save);
+        }
+
+        foreach (SettingsGroup group in dialog.Groups.Where(g => g.Path.Length == 0))
+        {
+            foreach (SettingsControl control in group.Controls.Where(c => c.Type == SettingsControlType.Button && c.Flags.HasFlag(SettingsControlFlags.Default)))
+            {
+                FrameworkElement open = Build(control);
+                if (open is Button button)
+                {
+                    button.Content = "Open session";                      // PuTTY says Open
+                    AutomationProperties.SetName(button, "Open session");
+                    button.MinWidth = 124;
+                    // The framework's own primary-button style, which follows the theme and the accent colour. (Not the
+                    // accent colour read from the resources: unboxing that boxed WinRT struct throws InvalidCastException
+                    // under NativeAOT. A Style is a class, and is kept known in AotTypeAnchors.)
+                    if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out object? accent) && accent is Style accentStyle)
+                    {
+                        button.Style = accentStyle;
+                    }
+                }
+
+                buttons.Children.Add(open);
+            }
+        }
+
+        Grid.SetColumn(buttons, 1);
+        bar.Children.Add(buttons);
+
+        var divided = new Border
+        {
+            Child = bar,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+        };
+        if (ThemeBrush("DividerStrokeColorDefaultBrush") is { } divider)
+        {
+            divided.BorderBrush = divider;
+        }
+
+        if (ThemeBrush("LayerFillColorDefaultBrush") is { } layer)
+        {
+            divided.Background = layer;
+        }
+
+        return divided;
     }
 
-    private void BuildPageList()
+    // ----- The page tree and navigation -----------------------------------------------------------
+
+    private void FindPages()
     {
         foreach (SettingsGroup group in dialog.Groups)
         {
@@ -132,80 +304,230 @@ internal sealed partial class SettingsView
                 pagePaths.Add(group.Path);
             }
         }
-
-        foreach (string path in pagePaths)
-        {
-            int depth = path.Count(c => c == '/');
-            pageList.Items.Add(new TextBlock
-            {
-                Text = path[(path.LastIndexOf('/') + 1)..],
-                Margin = new Thickness(depth * PageIndent, 0, 0, 0),
-                FontWeight = depth == 0 ? FontWeights.SemiBold : FontWeights.Normal,
-            });
-        }
-
-        AutomationProperties.SetAutomationId(pageList, "SettingsPages");
-        pageList.SelectionChanged += (_, _) => ShowPage(pageList.SelectedIndex);
-        pageList.SelectedIndex = 0;
     }
 
-    private void ShowPage(int index)
+    /// <summary>One node per path element: "Connection/SSH/Auth" is Connection, then SSH, then Auth.</summary>
+    private void BuildTree()
     {
-        if (index < 0 || index >= pagePaths.Count)
+        foreach (string path in pagePaths)
+        {
+            string[] parts = path.Split('/');
+            string prefix = string.Empty;
+            TreeViewNode? parent = null;
+            foreach (string part in parts)
+            {
+                prefix = prefix.Length == 0 ? part : prefix + "/" + part;
+                if (!nodeOfPath.TryGetValue(prefix, out TreeViewNode? node))
+                {
+                    node = new TreeViewNode { Content = part };
+                    nodeOfPath[prefix] = node;
+                    pathOfNode[node] = prefix;
+                    if (parent is null)
+                    {
+                        tree.RootNodes.Add(node);
+                    }
+                    else
+                    {
+                        parent.Children.Add(node);
+                    }
+                }
+
+                parent = node;
+            }
+        }
+    }
+
+    private void OnTreeSelectionChanged()
+    {
+        if (navigating || tree.SelectedNode is not { } node || !pathOfNode.TryGetValue(node, out string? path))
         {
             return;
         }
 
-        string path = pagePaths[index];
-        if (!builtPages.TryGetValue(path, out FrameworkElement? page))
+        Navigate(path);
+    }
+
+    /// <summary>Shows a page: selects it in the tree (opening its parents), and fills in the header and the cards.</summary>
+    private void Navigate(string path)
+    {
+        // A node with no page of its own (none in PuTTY today) shows the first page under it.
+        if (!pagePaths.Contains(path))
         {
-            page = BuildPage(path);
-            builtPages[path] = page;
+            path = pagePaths.FirstOrDefault(p => p.StartsWith(path + "/", StringComparison.Ordinal)) ?? (pagePaths.Count > 0 ? pagePaths[0] : string.Empty);
         }
 
-        pageHost.Content = page;
+        if (path.Length == 0 || path == currentPath)
+        {
+            return;
+        }
+
+        navigating = true;
         try
         {
-            dialog.SetPage(path);
+            currentPath = path;
+            if (nodeOfPath.TryGetValue(path, out TreeViewNode? node))
+            {
+                for (string ancestor = path; ancestor.Contains('/');)
+                {
+                    ancestor = ancestor[..ancestor.LastIndexOf('/')];
+                    if (nodeOfPath.TryGetValue(ancestor, out TreeViewNode? parent))
+                    {
+                        parent.IsExpanded = true;
+                    }
+                }
+
+                node.IsExpanded = node.Children.Count > 0;       // the selected branch is open, as in the sketch
+                tree.SelectedNode = node;
+            }
+
+            string[] parts = path.Split('/');
+            var crumbs = new List<string> { RootTitle };       // (a List, not a collection expression: CsWinRT1032)
+            crumbs.AddRange(parts);
+            breadcrumb.ItemsSource = crumbs;
+            pageTitle.Text = parts[^1];
+            pageSubtitle.Text = dialog.Groups.FirstOrDefault(g => g.Path == path && g.IsPageHeading)?.Title ?? string.Empty;
+            pageSubtitle.Visibility = pageSubtitle.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            if (!builtPages.TryGetValue(path, out FrameworkElement? cards))
+            {
+                cards = BuildPage(path);
+                builtPages[path] = cards;
+            }
+
+            pageContent.Children.Clear();
+            pageContent.Children.Add(cards);
+            pageHost.ChangeView(0, 0, null, disableAnimation: true);
+            try
+            {
+                dialog.SetPage(path);
+            }
+            catch (ObjectDisposedException)
+            {
+                // the dialog was closed while the tree was still changing
+            }
         }
-        catch (ObjectDisposedException)
+        finally
         {
-            // the dialog was closed while the list was still changing
+            navigating = false;
         }
     }
 
-    // ----- A page: its groups, laid out the way PuTTY lays out columns ------------------------------
-
-    private FrameworkElement BuildPage(string path)
+    private void OnBreadcrumbClicked(int index)
     {
-        var page = new StackPanel { Spacing = 14 };
-        foreach (SettingsGroup group in dialog.Groups.Where(g => g.Path == path))
+        // Item 0 is "Configuration" (the first page); item n is the path of the first n elements.
+        string[] parts = (currentPath ?? string.Empty).Split('/');
+        if (index <= 0)
         {
-            if (group.IsPageHeading)
+            Navigate(pagePaths.Count > 0 ? pagePaths[0] : string.Empty);
+            return;
+        }
+
+        Navigate(string.Join('/', parts.Take(index)));
+    }
+
+    // ----- Find a setting ---------------------------------------------------------------------------
+
+    /// <summary>Every labelled control on a page, so "Find a setting" can take the user to it.</summary>
+    private void BuildSearchIndex()
+    {
+        foreach (SettingsControl control in dialog.Controls)
+        {
+            string path = dialog.Groups[control.Group].Path;
+            if (path.Length == 0 || control.Label is not { Length: > 0 } label ||
+                control.Type is SettingsControlType.Text or SettingsControlType.Columns)
             {
-                page.Children.Add(new TextBlock { Text = group.Title, FontSize = 20, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
                 continue;
             }
 
-            var body = BuildGroup(group);
-            var box = new StackPanel { Spacing = 6 };
-            if (group.Title.Length > 0)
+            string display = $"{Plain(label).TrimEnd(':')}  -  {path.Replace("/", " / ")}";
+            if (searchByDisplay.ContainsKey(display))
             {
-                box.Children.Add(new TextBlock { Text = group.Title, FontWeight = FontWeights.SemiBold });
+                continue;
             }
 
-            box.Children.Add(new Border
-            {
-                Child = body,
-                BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 0x80, 0x80, 0x80)),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(12),
-            });
-            page.Children.Add(box);
+            var entry = new SearchEntry(display, path, control.Id);
+            searchIndex.Add(entry);
+            searchByDisplay[display] = entry;
+        }
+    }
+
+    private void OnSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            return;
         }
 
-        return page;
+        string text = sender.Text.Trim();
+        var matches = new List<string>();
+        if (text.Length > 0)
+        {
+            matches.AddRange(searchIndex.Where(e => e.Display.Contains(text, StringComparison.CurrentCultureIgnoreCase)).Take(12).Select(e => e.Display));
+        }
+
+        sender.ItemsSource = matches;
+    }
+
+    private void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        string text = args.QueryText.Trim();
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        SearchEntry? entry = searchByDisplay.GetValueOrDefault(text)
+            ?? searchIndex.FirstOrDefault(e => e.Display.Contains(text, StringComparison.CurrentCultureIgnoreCase));
+        if (entry is null)
+        {
+            return;
+        }
+
+        currentPath = null;                   // force the page to be shown even if it is the one that is open
+        Navigate(entry.Path);
+        if (widgets.TryGetValue(entry.ControlId, out Widget? widget))
+        {
+            pageHost.UpdateLayout();
+            widget.Root?.StartBringIntoView();
+            widget.Focus?.Invoke();
+        }
+    }
+
+    // ----- A page: its groups as cards -----------------------------------------------------------------
+
+    private FrameworkElement BuildPage(string path)
+    {
+        var cards = new StackPanel { Spacing = 12 };
+        foreach (SettingsGroup group in dialog.Groups.Where(g => g.Path == path && !g.IsPageHeading))
+        {
+            var inside = new StackPanel { Spacing = 12 };
+            if (group.Title.Length > 0)
+            {
+                inside.Children.Add(new TextBlock { Text = group.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            }
+
+            inside.Children.Add(BuildGroup(group));
+            var card = new Border
+            {
+                Child = inside,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(16),
+            };
+            if (ThemeBrush("CardBackgroundFillColorDefaultBrush") is { } fill)
+            {
+                card.Background = fill;
+            }
+
+            if (ThemeBrush("CardStrokeColorDefaultBrush") is { } stroke)
+            {
+                card.BorderBrush = stroke;
+            }
+
+            cards.Children.Add(card);
+        }
+
+        return cards;
     }
 
     /// <summary>
@@ -215,7 +537,7 @@ internal sealed partial class SettingsView
     /// </summary>
     private StackPanel BuildGroup(SettingsGroup group)
     {
-        var flow = new StackPanel { Spacing = 8 };
+        var flow = new StackPanel { Spacing = 10 };
         StackPanel[]? columns = null;          // the stacks of the multi-column block being filled, or null for one column
 
         foreach (SettingsControl control in group.Controls)
@@ -230,7 +552,7 @@ internal sealed partial class SettingsView
                     {
                         int percent = i < control.Percentages.Count ? control.Percentages[i] : 100 / control.Columns;
                         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(1, percent), GridUnitType.Star) });
-                        columns[i] = new StackPanel { Spacing = 8 };
+                        columns[i] = new StackPanel { Spacing = 10 };
                         Grid.SetColumn(columns[i], i);
                         grid.Children.Add(columns[i]);
                     }
@@ -277,6 +599,7 @@ internal sealed partial class SettingsView
             SettingsControlType.FontSelect => BuildFont(widget),
             _ => new Grid(),
         };
+        widget.Root = element;
         widgets[control.Id] = widget;
         widget.Refresh();
         return element;
@@ -339,10 +662,11 @@ internal sealed partial class SettingsView
         if (inline)
         {
             var row = new Grid { ColumnSpacing = 10 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.Children.Add(label);
             Grid.SetColumn(input, 1);
+            input.MinWidth = Math.Max(input.MinWidth, 220);
             row.Children.Add(input);
             return row;
         }
@@ -420,9 +744,41 @@ internal sealed partial class SettingsView
         return Labelled(control, widget, box, inline);
     }
 
+    /// <summary>PuTTY's three-way setting (Auto, Force on, Force off): the sketch draws it as a segmented control.</summary>
+    private static bool IsTriState(SettingsControl control) =>
+        control.Buttons.Count == 3 && Plain(control.Buttons[0]) == "Auto" && Plain(control.Buttons[1]).StartsWith("Force on", StringComparison.Ordinal);
+
     private FrameworkElement BuildRadio(Widget widget)
     {
         SettingsControl control = widget.Control;
+        if (IsTriState(control))
+        {
+            var bar = new SelectorBar();
+            foreach (string label in control.Buttons)
+            {
+                bar.Items.Add(new SelectorBarItem { Text = Plain(label) });
+            }
+
+            Tag(bar, control, widget);
+            bar.SelectionChanged += (sender, _) =>
+            {
+                int index = sender.Items.IndexOf(sender.SelectedItem);
+                if (!updating && index >= 0)
+                {
+                    dialog.SetRadio(control.Id, index);
+                }
+            };
+            widget.Refresh = () => Quietly(() =>
+            {
+                int selected = dialog.GetRadio(control.Id);
+                if (selected >= 0 && selected < bar.Items.Count)
+                {
+                    bar.SelectedItem = bar.Items[selected];
+                }
+            });
+            return Labelled(control, widget, bar, inline: true);
+        }
+
         var radios = new RadioButtons { MaxColumns = Math.Max(1, control.Columns) };
         foreach (string label in control.Buttons)
         {
@@ -441,17 +797,26 @@ internal sealed partial class SettingsView
         return Labelled(control, widget, radios, inline: false);
     }
 
+    /// <summary>A check box is a switch with its label on the left and On or Off beside it, as in the sketch.</summary>
     private FrameworkElement BuildCheck(Widget widget)
     {
         SettingsControl control = widget.Control;
-        var check = new CheckBox { Content = Plain(control.Label) };
-        Access(check, control.Shortcut);
-        Tag(check, control, widget);
-        check.Checked += (_, _) => { if (!updating) { dialog.SetChecked(control.Id, true); } };
-        check.Unchecked += (_, _) => { if (!updating) { dialog.SetChecked(control.Id, false); } };
-        widget.Refresh = () => Quietly(() => check.IsChecked = dialog.GetChecked(control.Id));
-        widget.SetLabel = text => check.Content = Plain(text);
-        return check;
+        var label = new TextBlock { Text = Plain(control.Label), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        var toggle = new ToggleSwitch { OnContent = "On", OffContent = "Off", MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Right };
+        Access(toggle, control.Shortcut);
+        Tag(toggle, control, widget);
+        AutomationProperties.SetName(toggle, Plain(control.Label));
+        toggle.Toggled += (_, _) => { if (!updating) { dialog.SetChecked(control.Id, toggle.IsOn); } };
+        widget.Refresh = () => Quietly(() => toggle.IsOn = dialog.GetChecked(control.Id));
+        widget.SetLabel = text => { label.Text = Plain(text); AutomationProperties.SetName(toggle, Plain(text)); };
+
+        var row = new Grid { ColumnSpacing = 12 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(label);
+        Grid.SetColumn(toggle, 1);
+        row.Children.Add(toggle);
+        return row;
     }
 
     private FrameworkElement BuildButton(Widget widget)
@@ -493,10 +858,15 @@ internal sealed partial class SettingsView
         {
             SelectionMode = control.MultiSelect == 0 ? ListViewSelectionMode.Single : control.MultiSelect == 1 ? ListViewSelectionMode.Multiple : ListViewSelectionMode.Extended,
             Height = Math.Max(3, control.ListHeight) * 34 + 4,
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x40, 0x80, 0x80, 0x80)),
             BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
             IsDoubleTapEnabled = true,
         };
+        if (ThemeBrush("CardStrokeColorDefaultBrush") is { } stroke)
+        {
+            list.BorderBrush = stroke;
+        }
+
         Tag(list, control, widget);
         int dragFrom = -1;
         if (control.Flags.HasFlag(SettingsControlFlags.DragList))

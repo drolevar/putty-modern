@@ -93,7 +93,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            if (savedName is not null && !LoadSaved(dialog, savedName))
+            if (savedName is not null && !dialog.LoadSavedSession(savedName))
             {
                 dialog.Dispose();
                 _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the settings", $"There is no saved session called \"{savedName}\" any more.");
@@ -123,28 +123,6 @@ public sealed partial class MainWindow : Window
             dialog.Dispose();
             _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the settings", ex.ToString());
         }
-    }
-
-    /// <summary>Loads a saved session into the dialog by doing what the user does: pick it in the list, press Load.</summary>
-    private static bool LoadSaved(SettingsDialog dialog, string name)
-    {
-        SettingsControl[] session = [.. dialog.Groups.Where(g => g.Path == "Session").SelectMany(g => g.Controls)];
-        SettingsControl? list = session.FirstOrDefault(c => c.Type == SettingsControlType.ListBox && !c.IsDropDown);
-        SettingsControl? load = session.FirstOrDefault(c => c.Type == SettingsControlType.Button && c.Label == "Load");
-        if (list is null || load is null)
-        {
-            return false;
-        }
-
-        int at = dialog.GetList(list.Id).ToList().FindIndex(e => e.Text == name);
-        if (at < 0)
-        {
-            return false;
-        }
-
-        dialog.Select(list.Id, at);
-        dialog.Act(load.Id);
-        return true;
     }
 
     /// <summary>What to call the document: the saved session's name if it has one, else the host.</summary>
