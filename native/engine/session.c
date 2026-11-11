@@ -647,6 +647,29 @@ PE_API int32_t pe_session_open_saved(const char *name, const pe_session_options 
     return rc;
 }
 
+PE_API int32_t pe_session_open_like(pe_session *like, const pe_session_events *events, void *user, pe_session **out_session)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!events || !out_session)
+        return PE_ERR_FAILED;
+    if (!session_is_live(like) || like->pending_close)
+        return PE_ERR_STATE;
+
+    Conf *copy = conf_copy(like->conf);
+    const BackendVtable *vt = backend_vt_from_proto(conf_get_int(copy, CONF_protocol));
+    if (!vt) {
+        conf_free(copy);
+        return PE_ERR_FAILED;
+    }
+    char *host = dupstr(conf_get_str(copy, CONF_host));
+    int port = conf_get_int(copy, CONF_port);
+    rc = session_start(copy, host, port, vt, events, user, out_session);
+    sfree(host);
+    return rc;
+}
+
 int32_t pe_session_open_conf(Conf *conf, const pe_session_events *events, void *user, pe_session **out_session)
 {
     int32_t rc = pe_check_engine_thread();

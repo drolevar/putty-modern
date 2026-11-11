@@ -174,6 +174,24 @@ public sealed unsafe partial class PuttySession : IDisposable
         this.opener = opener;
     }
 
+    /// <summary>
+    /// A new session with a copy of this one's settings (host, port, protocol, user name, everything, including what
+    /// Change Settings altered), for Reconnect and Duplicate. Not started yet. This session must still be open when the
+    /// new one is started: it is where the settings are copied from.
+    /// </summary>
+    public PuttySession Clone()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        nint source = handle;
+        if (source == 0)
+        {
+            throw new InvalidOperationException("The session has not been started.");
+        }
+
+        return FromOpener(description: "the open session", (NativeSessionEvents* events, nint user, out nint session) =>
+            NativeMethods.SessionOpenLike(source, events, user, out session));
+    }
+
     /// <summary>A session opened by a native call of the caller's (the settings dialog's Open); not started yet.</summary>
     internal static PuttySession FromOpener(string description, NativeOpener opener) => new(description, opener);
 

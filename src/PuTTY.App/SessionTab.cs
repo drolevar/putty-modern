@@ -11,7 +11,7 @@ namespace PuTTY.App;
 /// </summary>
 internal sealed class SessionTab : IDisposable
 {
-    private readonly SessionInteraction interaction;
+    private SessionInteraction interaction;
     private bool disposed;
 
     public SessionTab(DocumentWindow document, UserControl host, TerminalViewController terminal, PuttySession session,
@@ -34,7 +34,8 @@ internal sealed class SessionTab : IDisposable
 
     public TerminalViewController Terminal { get; }
 
-    public PuttySession Session { get; }
+    /// <summary>The session in the tab; Reconnect puts a new one in its place (<see cref="Replace"/>).</summary>
+    public PuttySession Session { get; private set; }
 
     /// <summary>What the tab is called: the saved session's name, or the host.</summary>
     public string Title { get; }
@@ -47,6 +48,21 @@ internal sealed class SessionTab : IDisposable
 
     /// <summary>The text for the window's title bar: what the server set, or PuTTY's own default for the host.</summary>
     public string WindowTitle { get; set; } = "PuTTY";
+
+    /// <summary>
+    /// Reconnect: a new session takes the old one's place in this tab. The old one ends, and its renderer lets go of the
+    /// terminal panel, which the caller then gives to the new one with <c>Terminal.Show</c>.
+    /// </summary>
+    public void Replace(PuttySession fresh, SessionInteraction freshInteraction)
+    {
+        SessionInteraction oldInteraction = interaction;
+        PuttySession old = Session;
+        Session = fresh;
+        interaction = freshInteraction;
+        oldInteraction.Dispose();
+        old.Dispose();
+        Connected = true;
+    }
 
     public void Dispose()
     {

@@ -32,6 +32,8 @@ public sealed partial class MainWindow : Window
         sessions.EditRequested += name => OpenSettings(name);
         details = new SessionDetailsController(DetailsHost);
         details.SettingsRequested += OpenChangeSettings;
+        details.ReconnectRequested += Reconnect;
+        details.DuplicateRequested += Duplicate;
         SessionsHost.Loaded += (_, _) =>
         {
             if (App.EngineRunning)
@@ -52,7 +54,8 @@ public sealed partial class MainWindow : Window
             if (e.Window is DocumentWindow document && tabOf.Remove(document, out SessionTab? tab))
             {
                 tabs.Remove(tab);
-                if (ReferenceEquals(active, tab))
+                bool wasActive = ReferenceEquals(active, tab);
+                if (wasActive)
                 {
                     active = null;
                     details.Clear();
@@ -60,6 +63,11 @@ public sealed partial class MainWindow : Window
                 }
 
                 tab.Dispose();      // the tab was closed: its session ends
+                if (wasActive)
+                {
+                    // The docking library shows the neighbouring tab, and may say so before or after this event: look once it has settled.
+                    DispatcherQueue.TryEnqueue(ActivateRemaining);
+                }
             }
         };
 
@@ -236,23 +244,7 @@ public sealed partial class MainWindow : Window
             var document = new DocumentWindow { Title = title, Content = host, SerializationId = $"doc.session.{++tabCounter}" };
             interaction = new SessionInteraction(session, () => DockSite.XamlRoot, terminal.Focus);
             var tab = new SessionTab(document, host, terminal, session, interaction, title, description);
-            session.TitleChanged += (_, e) =>
-            {
-                // PuTTY's own default title already ends in " - PuTTY" ("host - PuTTY"); a title the server sets does not.
-                tab.WindowTitle = e.Title.EndsWith("PuTTY", StringComparison.Ordinal) ? e.Title : $"{e.Title} - PuTTY";
-                if (ReferenceEquals(active, tab))
-                {
-                    Title = tab.WindowTitle;
-                }
-            };
-            session.Closed += (_, _) =>
-            {
-                tab.Connected = false;
-                if (ReferenceEquals(active, tab))
-                {
-                    details.SetConnected(false);
-                }
-            };
+            Wire(tab, session);
             session.Start();
 
             tabs.Add(tab);
@@ -271,6 +263,96 @@ public sealed partial class MainWindow : Window
             session?.Dispose();
             _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not connect", ex.Message);
             return false;
+        }
+    }
+
+    /// <summary>What a tab does with its session's events: the server's title for the title bar, and the end of the connection.</summary>
+    private void Wire(SessionTab tab, PuttySession session)
+    {
+        session.TitleChanged += (_, e) =>
+        {
+            if (!ReferenceEquals(tab.Session, session))
+            {
+                return;         // a session that Reconnect has replaced
+            }
+
+            // PuTTY's own default title already ends in " - PuTTY" ("host - PuTTY"); a title the server sets does not.
+            tab.WindowTitle = e.Title.EndsWith("PuTTY", StringComparison.Ordinal) ? e.Title : $"{e.Title} - PuTTY";
+            if (ReferenceEquals(active, tab))
+            {
+                Title = tab.WindowTitle;
+            }
+        };
+        session.Closed += (_, _) =>
+        {
+            if (!ReferenceEquals(tab.Session, session))
+            {
+                return;
+            }
+
+            tab.Connected = false;
+            if (ReferenceEquals(active, tab))
+            {
+                details.SetConnected(false);
+            }
+        };
+    }
+
+    /// <summary>Another tab with a copy of the active session's settings (everything, including what Change Settings altered).</summary>
+    private void Duplicate()
+    {
+        if (!App.EngineRunning || active is not { } tab)
+        {
+            return;
+        }
+
+        StartSession(() => tab.Session.Clone(), tab.Title, tab.Description);
+    }
+
+    /// <summary>
+    /// The connection of the active tab has ended: connect again in the same tab with the same settings. The new session
+    /// is started while the ended one is still there to copy from; then the old one goes, which frees the terminal panel
+    /// for the new one's view.
+    /// </summary>
+    private void Reconnect()
+    {
+        if (!App.EngineRunning || active is not { Connected: false } tab)
+        {
+            return;
+        }
+
+        PuttySession? fresh = null;
+        SessionInteraction? interaction = null;
+        try
+        {
+            fresh = tab.Session.Clone();
+            interaction = new SessionInteraction(fresh, () => DockSite.XamlRoot, tab.Terminal.Focus);
+            Wire(tab, fresh);
+            fresh.Start();
+            tab.Replace(fresh, interaction);
+            tab.Terminal.Show(fresh);
+            details.SetConnected(true);
+        }
+        catch (InvalidOperationException ex)
+        {
+            interaction?.Dispose();
+            fresh?.Dispose();
+            _ = SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "Could not reconnect", ex.Message);
+        }
+    }
+
+    /// <summary>The active tab was closed: whichever tab the docking library now shows becomes the active one, if there is one.</summary>
+    private void ActivateRemaining()
+    {
+        if (active is not null)
+        {
+            return;         // the library's own WindowActivated already did it
+        }
+
+        SessionTab? next = DockSite.ActiveDocument is { } document && tabOf.TryGetValue(document, out SessionTab? shown) ? shown : tabs.LastOrDefault();
+        if (next is not null)
+        {
+            Activate(next);
         }
     }
 

@@ -44,6 +44,9 @@ internal static partial class NativeMethods
     internal static unsafe partial int SessionOpenSaved(
         string name, NativeSessionOptions* overrides, NativeSessionEvents* events, nint user, out nint session);
 
+    [LibraryImport(Library, EntryPoint = "pe_session_open_like")]
+    internal static unsafe partial int SessionOpenLike(nint like, NativeSessionEvents* events, nint user, out nint session);
+
     [LibraryImport(Library, EntryPoint = "pe_sessions_enumerate")]
     internal static unsafe partial int SessionsEnumerate(delegate* unmanaged<nint, byte*, void> callback, nint user);
 

@@ -191,6 +191,14 @@ PE_API int32_t pe_session_open_saved(const char *name, const pe_session_options 
                                      const pe_session_events *events, void *user,
                                      pe_session **out_session);
 
+/*
+ * Opens a new session with a copy of the settings of a session that is open (or has ended but is not closed yet):
+ * the same host, port, protocol, user name and every setting, including what was changed in Change Settings. For
+ * Reconnect and Duplicate, which cannot start from a saved name because the session may never have been saved.
+ * PE_ERR_STATE if `like` is not a live session.
+ */
+PE_API int32_t pe_session_open_like(pe_session *like, const pe_session_events *events, void *user, pe_session **out_session);
+
 /* Called once per saved session by pe_sessions_enumerate; `name` is UTF-8, valid during the call. */
 typedef void (*pe_name_fn)(void *user, const char *name);
 

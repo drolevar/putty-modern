@@ -288,6 +288,42 @@ try {
                 Check 'closing the first tab closed its connection' $closed
                 Check 'and its tab is gone' ((Ui @('search', 'e2e alpha', '--type', 'TabItem')) -match 'Found 0')
                 Check 'the second session was not touched' ((-not (Is-Closed $betaClient)) -and (Ui @('search', 'e2e beta', '--type', 'TabItem')) -match 'Found [1-9]')
+
+                # --- Duplicate session: another tab with a copy of this session's settings
+                $acceptDuplicate = $beta.AcceptTcpClientAsync()
+                [void](Ui @('invoke', 'DuplicateButton'))
+                Check 'Duplicate session opens a second connection to the same server' ($acceptDuplicate.Wait(20000))
+                Check 'in a tab of its own, beside the first' ((Ui @('inspect', '--depth', '16')) -match 'TabItem "e2e beta"[\s\S]*TabItem "e2e beta"')
+
+                # --- the server hangs up on the duplicate: the panel says so, and Reconnect brings it back in the same tab
+                if ($acceptDuplicate.IsCompleted) {
+                    $duplicateClient = $acceptDuplicate.Result
+                    $acceptAgain = $beta.AcceptTcpClientAsync()
+                    $duplicateClient.Close()
+                    $notConnected = $false
+                    $deadline = (Get-Date).AddSeconds(15)
+                    while ((Get-Date) -lt $deadline -and -not $notConnected) {
+                        $notConnected = (Ui @('get-property', 'SessionDetailsStatus')) -match 'Not connected'
+                        if (-not $notConnected) { Start-Sleep -Milliseconds 400 }
+                    }
+                    Check 'when the server hangs up the details panel says Not connected' $notConnected
+                    Check 'and Reconnect, which was disabled while connected, can now be used' ((Ui @('get-property', 'ReconnectButton')) -match 'IsEnabled:\s*True')
+                    [void](Ui @('invoke', 'ReconnectButton'))
+                    Check 'Reconnect connects again to the same server' ($acceptAgain.Wait(20000))
+                    $again = if ($acceptAgain.IsCompleted) { $acceptAgain.Result } else { $null }
+                    if ($again) {
+                        $bytes = [Text.Encoding]::UTF8.GetBytes("$esc[32mBACK AGAIN$esc[0m`r`n")
+                        $again.GetStream().Write($bytes, 0, $bytes.Length)
+                        Start-Sleep -Seconds 3
+                        $reconnected = $Screenshot -replace '\.png$', '-reconnected.png'
+                        & winapp ui screenshot -a PuTTY.App --output $reconnected 2>&1 | Out-Null
+                        $greenAgain = [SessionsSmokeNative]::CountColour($reconnected, 0, 187, 0)
+                        Check 'the reconnected session draws in the same tab' ($greenAgain -gt 30) "($greenAgain green pixels)"
+                    }
+
+                    Check 'and the panel says Connected again' ((Ui @('get-property', 'SessionDetailsStatus')) -match 'Name:\s*Connected')
+                    Check 'the first of the two beta tabs was not disturbed' (-not (Is-Closed $betaClient))
+                }
             }
         }
     }
