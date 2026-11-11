@@ -101,10 +101,21 @@ try {
     # A picture of the window, to compare with the Figma frame "Session configuration" (artifacts\spike\app-settings-*.png).
     New-Item -ItemType Directory -Force -Path (Join-Path $root 'artifacts\spike') | Out-Null
     & winapp ui screenshot -a PuTTY.App --output (Join-Path $root 'artifacts\spike\app-settings-session.png') 2>&1 | Out-Null
+    # The sketch's words for the Session page (Presentation.cs), the lower cards scrolled into view for a second picture.
+    Check 'the page has the sketch''s line under its title' ((Ui @('search', 'Connect to a host or manage your saved sessions.')) -match 'Found [1-9]')
+    [void](Ui @('scroll-into-view', 'Only on clean exit'))
+    Check 'the close-on-exit setting is a card with its explanation' (Wait-Element 'Choose what happens when the connection ends.' 10)
+    & winapp ui screenshot -a PuTTY.App --output (Join-Path $root 'artifacts\spike\app-settings-session-bottom.png') 2>&1 | Out-Null
     # Choosing a page in the tree shows that page's controls (check boxes are switches, named after PuTTY's labels).
     [void](Ui @('invoke', 'Terminal', '--type', 'TreeItem'))
     Check 'choosing Terminal in the tree shows its controls' (Wait-Element 'Auto wrap mode initially on' 15)
     & winapp ui screenshot -a PuTTY.App --output (Join-Path $root 'artifacts\spike\app-settings-terminal.png') 2>&1 | Out-Null
+    Check 'Answerback is a card of its own with its explanation' (Wait-Element 'Response sent when the remote host requests identification.' 10)
+    [void](Ui @('scroll-into-view', 'Printer to send ANSI printer output to:'))
+    Check 'remote-controlled printing is a card with the sketch''s line' (Wait-Element 'Printer for ANSI printer output' 10)
+    Check 'the printer box says what an empty setting means' ((Ui @('get-value', 'Printer to send ANSI printer output to:')) -like '*None (printing disabled)*')
+    Check 'the line discipline card has its short title' ((Ui @('search', 'Line discipline')) -match 'Found [1-9]')
+    & winapp ui screenshot -a PuTTY.App --output (Join-Path $root 'artifacts\spike\app-settings-terminal-bottom.png') 2>&1 | Out-Null
     [void](Ui @('invoke', 'Session', '--type', 'TreeItem'))
     Check 'and Session brings the host name box back' (Wait-Element 'Host Name (or IP address)' 15 @('--type', 'Edit'))
     Check 'and the port box, filled with the SSH default by PuTTY''s own handler' ((Ui @('get-value', 'Port', '--type', 'Edit')) -match '22')

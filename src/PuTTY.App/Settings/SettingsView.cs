@@ -40,6 +40,7 @@ internal sealed partial class SettingsView
     private readonly TreeView tree = new();
     private readonly AutoSuggestBox search = new();
     private readonly BreadcrumbBar breadcrumb = new();
+    private string[]? hiddenLabels;        // labels left out of the group being built (Presentation.Card.HiddenLabels)
     private readonly TextBlock pageTitle = new();
     private readonly TextBlock pageSubtitle = new();
     private readonly StackPanel pageContent = new();
@@ -385,7 +386,8 @@ internal sealed partial class SettingsView
             crumbs.AddRange(parts);
             breadcrumb.ItemsSource = crumbs;
             pageTitle.Text = parts[^1];
-            pageSubtitle.Text = dialog.Groups.FirstOrDefault(g => g.Path == path && g.IsPageHeading)?.Title ?? string.Empty;
+            pageSubtitle.Text = Presentation.PageSubtitle(path)
+                ?? dialog.Groups.FirstOrDefault(g => g.Path == path && g.IsPageHeading)?.Title ?? string.Empty;
             pageSubtitle.Visibility = pageSubtitle.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
             if (!builtPages.TryGetValue(path, out FrameworkElement? cards))
@@ -500,34 +502,106 @@ internal sealed partial class SettingsView
         var cards = new StackPanel { Spacing = 12 };
         foreach (SettingsGroup group in dialog.Groups.Where(g => g.Path == path && !g.IsPageHeading))
         {
-            var inside = new StackPanel { Spacing = 12 };
-            if (group.Title.Length > 0)
+            // The sketch's cards where it has them (Presentation.cs), else one card with PuTTY's own title.
+            Presentation.Card[] rules = Presentation.CardsFor(path, group.Title) ?? [new Presentation.Card(null, group.Title)];
+            foreach ((Presentation.Card rule, List<SettingsControl> controls) in Partition(group, rules))
             {
-                inside.Children.Add(new TextBlock { Text = group.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+                cards.Children.Add(BuildCard(rule, group, controls));
             }
-
-            inside.Children.Add(BuildGroup(group));
-            var card = new Border
-            {
-                Child = inside,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(16),
-            };
-            if (ThemeBrush("CardBackgroundFillColorDefaultBrush") is { } fill)
-            {
-                card.Background = fill;
-            }
-
-            if (ThemeBrush("CardStrokeColorDefaultBrush") is { } stroke)
-            {
-                card.BorderBrush = stroke;
-            }
-
-            cards.Children.Add(card);
         }
 
         return cards;
+    }
+
+    /// <summary>Splits a group's controls among its cards: each card runs from the control named by its <c>FromLabel</c> to the next card's.</summary>
+    private static List<(Presentation.Card Rule, List<SettingsControl> Controls)> Partition(SettingsGroup group, Presentation.Card[] rules)
+    {
+        var parts = new List<(Presentation.Card Rule, List<SettingsControl> Controls)>();
+        foreach (Presentation.Card rule in rules)
+        {
+            // A card whose first control is not in this group (PuTTY changed) is left out: its controls stay in the card before.
+            if (rule.FromLabel is null || group.Controls.Any(c => Plain(c.Label) == rule.FromLabel))
+            {
+                parts.Add((rule, new List<SettingsControl>()));
+            }
+        }
+
+        int current = 0;
+        foreach (SettingsControl control in group.Controls)
+        {
+            for (int next = current + 1; next < parts.Count; next++)
+            {
+                if (Plain(control.Label) == parts[next].Rule.FromLabel)
+                {
+                    current = next;
+                }
+            }
+
+            parts[current].Controls.Add(control);
+        }
+
+        return parts;
+    }
+
+    private FrameworkElement BuildCard(Presentation.Card rule, SettingsGroup group, List<SettingsControl> controls)
+    {
+        FrameworkElement body = BuildGroup(controls, rule.HiddenLabels);
+        FrameworkElement inside;
+        if (rule.Side)
+        {
+            // One setting: what it is on the left, the control on the right.
+            var row = new Grid { ColumnSpacing = 16 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star), MinWidth = 220 });
+            row.Children.Add(CardHeading(rule));
+            Grid.SetColumn(body, 1);
+            body.VerticalAlignment = VerticalAlignment.Center;
+            row.Children.Add(body);
+            inside = row;
+        }
+        else
+        {
+            var stack = new StackPanel { Spacing = 12 };
+            if (rule.Title.Length > 0)
+            {
+                stack.Children.Add(CardHeading(rule));
+            }
+
+            stack.Children.Add(body);
+            inside = stack;
+        }
+
+        var card = new Border
+        {
+            Child = inside,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(16),
+        };
+        if (ThemeBrush("CardBackgroundFillColorDefaultBrush") is { } fill)
+        {
+            card.Background = fill;
+        }
+
+        if (ThemeBrush("CardStrokeColorDefaultBrush") is { } stroke)
+        {
+            card.BorderBrush = stroke;
+        }
+
+        return card;
+    }
+
+    /// <summary>A card's title, with the line of explanation under it if the sketch has one.</summary>
+    private static FrameworkElement CardHeading(Presentation.Card rule)
+    {
+        var heading = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        heading.Children.Add(new TextBlock { Text = rule.Title, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        if (rule.Subtitle is { Length: > 0 } subtitle)
+        {
+            heading.Children.Add(Secondary(subtitle));
+        }
+
+        return heading;
     }
 
     /// <summary>
@@ -535,12 +609,25 @@ internal sealed partial class SettingsView
     /// its own vertical stack, so a tall list in one column does not push down the buttons beside it. The
     /// only control that spans columns in all of PuTTY is laid out as a row of its own.
     /// </summary>
-    private StackPanel BuildGroup(SettingsGroup group)
+    private StackPanel BuildGroup(IReadOnlyList<SettingsControl> controls, string[]? hiddenLabels)
+    {
+        this.hiddenLabels = hiddenLabels;      // read by Labelled while this group is being built
+        try
+        {
+            return BuildFlow(controls);
+        }
+        finally
+        {
+            this.hiddenLabels = null;
+        }
+    }
+
+    private StackPanel BuildFlow(IReadOnlyList<SettingsControl> controls)
     {
         var flow = new StackPanel { Spacing = 10 };
         StackPanel[]? columns = null;          // the stacks of the multi-column block being filled, or null for one column
 
-        foreach (SettingsControl control in group.Controls)
+        foreach (SettingsControl control in controls)
         {
             if (control.Type == SettingsControlType.Columns)
             {
@@ -657,8 +744,13 @@ internal sealed partial class SettingsView
             return input;
         }
 
-        var label = new TextBlock { Text = Plain(control.Label), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
-        widget.SetLabel = text => label.Text = Plain(text);
+        if (hiddenLabels is not null && Array.IndexOf(hiddenLabels, Plain(control.Label)) >= 0)
+        {
+            return input;       // the card's title already says it (the control keeps its label as its UI Automation name)
+        }
+
+        var label = new TextBlock { Text = Presentation.Caption(Plain(control.Label)), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        widget.SetLabel = text => label.Text = Presentation.Caption(Plain(text));
         if (inline)
         {
             var row = new Grid { ColumnSpacing = 10 };
@@ -688,9 +780,9 @@ internal sealed partial class SettingsView
         widget.Refresh = () =>
         {
             string state = dialog.GetText(control.Id);
-            text.Text = state.Length > 0 ? state : Plain(control.Label);
+            text.Text = state.Length > 0 ? state : Presentation.Caption(Plain(control.Label));
         };
-        widget.SetLabel = value => text.Text = value;
+        widget.SetLabel = value => text.Text = Presentation.Caption(value);
         return text;
     }
 
@@ -714,7 +806,26 @@ internal sealed partial class SettingsView
                     combo.Items.Add(entry.Text);
                 }
 
-                combo.Text = dialog.GetText(control.Id);
+                // An editable ComboBox shows an item reliably when that item is selected; Text alone is not always
+                // applied before its template exists. A text that is not in the list goes in as typed text.
+                string shown = Presentation.ShownText(Plain(control.Label), dialog.GetText(control.Id));
+                int at = -1;
+                for (int i = 0; i < combo.Items.Count && at < 0; i++)
+                {
+                    if (combo.Items[i] is string item && item == shown)
+                    {
+                        at = i;
+                    }
+                }
+
+                if (at >= 0)
+                {
+                    combo.SelectedIndex = at;
+                }
+                else
+                {
+                    combo.Text = shown;
+                }
             });
             return Labelled(control, widget, combo, inline);
         }
@@ -782,7 +893,7 @@ internal sealed partial class SettingsView
         var radios = new RadioButtons { MaxColumns = Math.Max(1, control.Columns) };
         foreach (string label in control.Buttons)
         {
-            radios.Items.Add(Plain(label));
+            radios.Items.Add(Presentation.Caption(Plain(label)));
         }
 
         Tag(radios, control, widget);
@@ -868,6 +979,12 @@ internal sealed partial class SettingsView
         }
 
         Tag(list, control, widget);
+
+        // The saved-sessions list shows each session's host and protocol beside its name, as in the sketch.
+        SettingsGroup home = dialog.Groups[control.Group];
+        bool sessionList = Presentation.IsSavedSessionList(home.Path, home.Title);
+        var shownRows = new List<string>();
+
         int dragFrom = -1;
         if (control.Flags.HasFlag(SettingsControlFlags.DragList))
         {
@@ -916,7 +1033,15 @@ internal sealed partial class SettingsView
         widget.Refresh = () => Quietly(() =>
         {
             IReadOnlyList<SettingsListEntry> entries = dialog.GetList(control.Id);
-            SyncItems(list.Items, entries);
+            if (sessionList)
+            {
+                SyncSessionRows(list.Items, entries, shownRows);
+            }
+            else
+            {
+                SyncItems(list.Items, entries);
+            }
+
             if (control.MultiSelect == 0)
             {
                 // SelectedItems.Add fails (E_UNEXPECTED) on a single-selection list that is not on screen yet.
@@ -964,6 +1089,64 @@ internal sealed partial class SettingsView
         {
             items.Add(Display(entry.Text));
         }
+    }
+
+    /// <summary>
+    /// Makes the saved-sessions list a row per session: the name, and on the right in the secondary colour where it
+    /// goes ("10.20.0.12 · SSH", read from PuTTY's storage like the list). Touches the list only if a row differs.
+    /// </summary>
+    private static void SyncSessionRows(IList<object> items, IReadOnlyList<SettingsListEntry> entries, List<string> shown)
+    {
+        var descriptions = new List<string>();
+        var wanted = new List<string>();
+        foreach (SettingsListEntry entry in entries)
+        {
+            string name = Display(entry.Text);
+            string description = string.Empty;
+            if (!name.Equals(PuttySessions.DefaultSettingsName, StringComparison.Ordinal))
+            {
+                try
+                {
+                    description = PuttySessions.Describe(entry.Text)?.Description ?? string.Empty;
+                }
+                catch (InvalidOperationException)
+                {
+                    // the engine is shutting down: the name alone will do
+                }
+            }
+
+            descriptions.Add(description);
+            wanted.Add(name + "\u0001" + description);
+        }
+
+        if (wanted.SequenceEqual(shown))
+        {
+            return;
+        }
+
+        items.Clear();
+        for (int i = 0; i < entries.Count; i++)
+        {
+            string name = Display(entries[i].Text);
+            var row = new Grid { ColumnSpacing = 12, MinHeight = 32 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            if (descriptions[i].Length > 0)
+            {
+                TextBlock where = Secondary(descriptions[i]);
+                where.VerticalAlignment = VerticalAlignment.Center;
+                Grid.SetColumn(where, 1);
+                row.Children.Add(where);
+            }
+
+            var item = new ListViewItem { Content = row };
+            AutomationProperties.SetName(item, name);
+            items.Add(item);
+        }
+
+        shown.Clear();
+        shown.AddRange(wanted);
     }
 
     /// <summary>PuTTY puts tab-separated columns in some list entries (a port forwarding is "L8080&lt;tab&gt;host:80").</summary>

@@ -27,7 +27,7 @@ internal sealed partial class SettingsWindow : Window
         view = new SettingsView(dialog, () => Content?.XamlRoot, () => WinRT.Interop.WindowNative.GetWindowHandle(this));
         Content = view.Root;
         SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();      // the sketch's #F3F3F3 base is Mica
-        AppWindow.Resize(new SizeInt32(1120, 860));                          // the size of the Figma frame
+        WindowSizing.Resize(AppWindow, 1120, 860);                           // the size of the Figma frame, or the screen if that is smaller
         view.Ended += OnEnded;
         Closed += (_, _) =>
         {
