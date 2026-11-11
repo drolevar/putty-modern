@@ -240,6 +240,9 @@ public sealed unsafe class SettingsDialog : IDisposable
     /// <summary>The user pushed a button, or double-clicked a list entry.</summary>
     public void Act(int id) => Check(NativeMethods.ConfigUserAction(Handle, id), nameof(Act));
 
+    /// <summary>The user dragged a list entry (of a control with <see cref="SettingsControlFlags.DragList"/>) to a new position.</summary>
+    public void Move(int id, int from, int to) => Check(NativeMethods.ConfigUserMove(Handle, id, from, to), nameof(Move));
+
     public void SetFile(int id, string path) => Check(NativeMethods.ConfigUserSetFile(Handle, id, path), nameof(SetFile));
 
     public void SetFont(int id, SettingsFont font) =>

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using PuTTY.App.Settings;
 using PuTTY.App.ViewModels;
 using PuTTY.Interop;
 using Windows.Graphics;
@@ -21,6 +22,8 @@ public sealed partial class MainWindow : Window
         terminal = new TerminalViewController(TerminalHost);
         sessions = new SessionListController(SessionsHost);
         sessions.OpenRequested += name => _ = OpenSavedAsync(name);
+        sessions.NewRequested += () => OpenSettings(null);
+        sessions.EditRequested += name => OpenSettings(name);
         SessionsHost.Loaded += (_, _) =>
         {
             if (App.EngineRunning)
@@ -64,6 +67,99 @@ public sealed partial class MainWindow : Window
             ? null
             : new PuttySessionOptions { UserName = target.UserName, KeyFile = target.KeyFile };
         StartSession(() => new PuttySession(target.Host, target.Port, target.Protocol, options), target.Host);
+    }
+
+    /// <summary>
+    /// PuTTY's configuration window, for a new session or, with a name, for a saved one (loaded the way the Load
+    /// button does). Open starts the session in the terminal; PuTTY's own Save writes it to PuTTY's storage.
+    /// </summary>
+    private void OpenSettings(string? savedName)
+    {
+        if (!App.EngineRunning)
+        {
+            return;
+        }
+
+        SettingsDialog dialog;
+        try
+        {
+            dialog = SettingsDialog.Open(useSavedDefaults: true);      // a new session starts from the user's own Default Settings
+        }
+        catch (InvalidOperationException ex)
+        {
+            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the settings", ex.Message);
+            return;
+        }
+
+        try
+        {
+            if (savedName is not null && !LoadSaved(dialog, savedName))
+            {
+                dialog.Dispose();
+                _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the settings", $"There is no saved session called \"{savedName}\" any more.");
+                return;
+            }
+
+            var window = new SettingsWindow(dialog, savedName is null ? "New session" : $"Settings - {savedName}")
+            {
+                Opened = async d =>
+                {
+                    string title = TitleFor(d);
+                    if (terminal.Session is { IsConnected: true } && !await ConfirmReplaceAsync(title))
+                    {
+                        return false;
+                    }
+
+                    StartSession(() => d.CreateSession(), title);
+                    return true;
+                },
+            };
+            window.Closed += (_, _) => sessions.Reload();       // a session saved or deleted there shows up here
+            window.Activate();
+        }
+        catch (Exception ex)
+        {
+            // A bug in drawing one of PuTTY's controls must not take the application down, and must be seen.
+            dialog.Dispose();
+            _ = SessionInteraction.ShowMessageAsync(TerminalHost.XamlRoot, "Could not open the settings", ex.ToString());
+        }
+    }
+
+    /// <summary>Loads a saved session into the dialog by doing what the user does: pick it in the list, press Load.</summary>
+    private static bool LoadSaved(SettingsDialog dialog, string name)
+    {
+        SettingsControl[] session = [.. dialog.Groups.Where(g => g.Path == "Session").SelectMany(g => g.Controls)];
+        SettingsControl? list = session.FirstOrDefault(c => c.Type == SettingsControlType.ListBox && !c.IsDropDown);
+        SettingsControl? load = session.FirstOrDefault(c => c.Type == SettingsControlType.Button && c.Label == "Load");
+        if (list is null || load is null)
+        {
+            return false;
+        }
+
+        int at = dialog.GetList(list.Id).ToList().FindIndex(e => e.Text == name);
+        if (at < 0)
+        {
+            return false;
+        }
+
+        dialog.Select(list.Id, at);
+        dialog.Act(load.Id);
+        return true;
+    }
+
+    /// <summary>What to call the document: the saved session's name if it has one, else the host.</summary>
+    private static string TitleFor(SettingsDialog dialog)
+    {
+        SettingsControl[] session = [.. dialog.Groups.Where(g => g.Path == "Session").SelectMany(g => g.Controls).Where(c => c.Type == SettingsControlType.EditBox)];
+        foreach (string label in new[] { "Saved Sessions", "Host Name (or IP address)" })
+        {
+            if (session.FirstOrDefault(c => c.Label == label) is { } box && dialog.GetText(box.Id).Trim() is { Length: > 0 } text)
+            {
+                return text;
+            }
+        }
+
+        return "Session";
     }
 
     /// <summary>Opens a saved session in the terminal; asks first if a connection is open, which it replaces.</summary>

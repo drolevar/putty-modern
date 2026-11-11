@@ -21,10 +21,14 @@ internal sealed class SessionListController
     public const string SearchId = "SessionSearch";
     public const string ListId = "SessionList";
     public const string OpenId = "OpenSessionButton";
+    public const string NewId = "NewSessionButton";
+    public const string EditId = "SessionSettingsButton";
 
     private readonly TextBox search = new();
     private readonly ListView list = new();
     private readonly Button open = new();
+    private readonly Button create = new();
+    private readonly Button edit = new();
     private readonly TextBlock status = new();
     private string[] all = [];     // an array, not IReadOnlyList: CsWinRT rejects a collection expression for that (CsWinRT1032)
 
@@ -39,7 +43,7 @@ internal sealed class SessionListController
         list.IsDoubleTapEnabled = true;
         list.DoubleTapped += (_, _) => OpenSelected();
         list.KeyDown += OnListKeyDown;
-        list.SelectionChanged += (_, _) => open.IsEnabled = list.SelectedItem is string;
+        list.SelectionChanged += (_, _) => open.IsEnabled = edit.IsEnabled = list.SelectedItem is string;
         AutomationProperties.SetAutomationId(list, ListId);
         AutomationProperties.SetName(list, "Saved sessions");
 
@@ -47,33 +51,52 @@ internal sealed class SessionListController
         open.IsEnabled = false;
         open.Click += (_, _) => OpenSelected();
         AutomationProperties.SetAutomationId(open, OpenId);
+        AutomationProperties.SetName(open, "Open session");      // PuTTY's settings window has an Open of its own
+
+        create.Content = "New...";
+        create.Click += (_, _) => NewRequested?.Invoke();
+        AutomationProperties.SetAutomationId(create, NewId);
+
+        edit.Content = "Edit...";
+        edit.IsEnabled = false;
+        edit.Click += (_, _) => { if (list.SelectedItem is string name) { EditRequested?.Invoke(name); } };
+        AutomationProperties.SetAutomationId(edit, EditId);
+        AutomationProperties.SetName(edit, "Session settings");
 
         status.Opacity = 0.7;
         status.VerticalAlignment = VerticalAlignment.Center;
         status.TextTrimming = TextTrimming.CharacterEllipsis;
 
-        var footer = new Grid { ColumnSpacing = 8, Margin = new Thickness(0, 8, 0, 0) };
-        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        footer.Children.Add(status);
-        Grid.SetColumn(open, 1);
-        footer.Children.Add(open);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(create);
+        buttons.Children.Add(edit);
+        buttons.Children.Add(open);
 
         var layout = new Grid { Margin = new Thickness(12) };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         search.Margin = new Thickness(0, 0, 0, 8);
         layout.Children.Add(search);
         Grid.SetRow(list, 1);
         layout.Children.Add(list);
-        Grid.SetRow(footer, 2);
-        layout.Children.Add(footer);
+        Grid.SetRow(status, 2);
+        status.Margin = new Thickness(0, 8, 0, 4);
+        layout.Children.Add(status);
+        Grid.SetRow(buttons, 3);
+        layout.Children.Add(buttons);
         host.Content = layout;
     }
 
     /// <summary>The user asked to open the session with this name.</summary>
     public event Action<string>? OpenRequested;
+
+    /// <summary>The user asked for the settings window for a new session.</summary>
+    public event Action? NewRequested;
+
+    /// <summary>The user asked to see and change the settings of the session with this name.</summary>
+    public event Action<string>? EditRequested;
 
     /// <summary>Reads the saved sessions again. Call it on the engine thread, with the engine running.</summary>
     public void Reload()

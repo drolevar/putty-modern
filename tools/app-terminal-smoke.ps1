@@ -14,9 +14,15 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Exe,
-    [string] $Screenshot = ''
+    [string] $Screenshot = '',
+    [switch] $AllowHostDesktop
 )
 
+if ($env:USERNAME -ne 'WDAGUtilityAccount' -and -not $AllowHostDesktop) {
+    Write-Host 'This starts the app and drives its windows. Run it in Windows Sandbox with tools\run-in-sandbox.ps1, or pass -AllowHostDesktop to use this desktop.'
+    exit 99
+}
+. (Join-Path $PSScriptRoot 'smoke-common.ps1')
 $ErrorActionPreference = 'Stop'
 if (-not $Screenshot) { $Screenshot = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\artifacts\spike\app-terminal.png' }
 $esc = [char]27
@@ -96,6 +102,7 @@ try {
 
     # Typing: thread messages to the app's UI thread, as Windows would post them. A Raw session edits
     # the line locally, so the server hears "xy" and the carriage return together, on Enter.
+    Focus-Terminal       # the terminal takes keys only with the keyboard focus (tools\smoke-common.ps1)
     $app.Refresh()
     $pid2 = 0
     $uiThread = [SmokeNative]::GetWindowThreadProcessId($app.MainWindowHandle, [ref]$pid2)

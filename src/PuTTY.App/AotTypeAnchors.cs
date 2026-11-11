@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Shapes;
 
@@ -24,8 +25,8 @@ namespace PuTTY.App;
 /// the way CLAUDE.md (section NativeAOT) describes: load it with
 /// <c>XamlReader</c> and look at <c>GetType()</c>. The classes the docking library casts its template
 /// parts to are: <c>ContentPresenter</c>, <c>Rectangle</c>, <c>Border</c>, <c>Button</c> and
-/// <c>FontIcon</c>. <c>TextBlock</c>, <c>Grid</c> and <c>StackPanel</c> are already constructed by the
-/// app or the library.
+/// <c>FontIcon</c>. The app itself casts a resource it looks up (<c>AccentButtonStyle</c>) to <c>Style</c>.
+/// <c>TextBlock</c>, <c>Grid</c> and <c>StackPanel</c> are already constructed by the app or the library.
 /// </para>
 /// </remarks>
 internal static class AotTypeAnchors
@@ -46,5 +47,6 @@ internal static class AotTypeAnchors
         _ = new Button();
         _ = new FontIcon();
         _ = new Rectangle();
+        _ = new Style();
     }
 }

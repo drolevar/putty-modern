@@ -15,9 +15,14 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Exe,
-    [string] $Screenshot = ''
+    [string] $Screenshot = '',
+    [switch] $AllowHostDesktop
 )
 
+if ($env:USERNAME -ne 'WDAGUtilityAccount' -and -not $AllowHostDesktop) {
+    Write-Host 'This starts the app and drives its windows. Run it in Windows Sandbox with tools\run-in-sandbox.ps1, or pass -AllowHostDesktop to use this desktop.'
+    exit 99
+}
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not $Screenshot) { $Screenshot = Join-Path $root 'artifacts\spike\app-sessions.png' }

@@ -17,9 +17,15 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Exe,
-    [string] $Screenshot = ''
+    [string] $Screenshot = '',
+    [switch] $AllowHostDesktop
 )
 
+if ($env:USERNAME -ne 'WDAGUtilityAccount' -and -not $AllowHostDesktop) {
+    Write-Host 'This starts the app and drives its windows. Run it in Windows Sandbox with tools\run-in-sandbox.ps1, or pass -AllowHostDesktop to use this desktop.'
+    exit 99
+}
+. (Join-Path $PSScriptRoot 'smoke-common.ps1')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not $Screenshot) { $Screenshot = Join-Path $root 'artifacts\spike\app-ssh.png' }
@@ -81,7 +87,8 @@ New-Item -ItemType Directory -Force -Path (Split-Path $Screenshot) | Out-Null
 Remove-Item $Screenshot -ErrorAction SilentlyContinue
 
 # The test server; it ends when its stdin closes.
-$psi = New-Object System.Diagnostics.ProcessStartInfo 'node'
+# Node: on PATH on a developer machine, or the copy staged next to the scripts in Windows Sandbox.
+$nodeExe = if (Test-Path (Join-Path $root 'artifacts\node\node.exe')) { Join-Path $root 'artifacts\node\node.exe' } else { 'node' }$psi = New-Object System.Diagnostics.ProcessStartInfo $nodeExe
 $psi.Arguments = '"' + (Join-Path $root 'tools\ssh-test-server\server.js') + '"'
 $psi.RedirectStandardInput = $true
 $psi.RedirectStandardOutput = $true
@@ -130,6 +137,7 @@ try {
 
     # --- type a command (thread messages, as Windows would post them)
     Start-Sleep -Seconds 1
+    Focus-Terminal       # the terminal takes keys only with the keyboard focus (tools\smoke-common.ps1)
     $app.Refresh()
     $pid2 = 0
     $uiThread = [SshSmokeNative]::GetWindowThreadProcessId($app.MainWindowHandle, [ref]$pid2)

@@ -79,6 +79,12 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_config_user_action")]
     internal static partial int ConfigUserAction(nint config, int id);
 
+    [LibraryImport(Library, EntryPoint = "pe_config_user_move")]
+    internal static partial int ConfigUserMove(nint config, int id, int from, int to);
+
+    [LibraryImport(Library, EntryPoint = "pe_fonts_enumerate")]
+    internal static unsafe partial int FontsEnumerate(delegate* unmanaged<nint, byte*, void> callback, nint user);
+
     [LibraryImport(Library, EntryPoint = "pe_config_user_set_file", StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int ConfigUserSetFile(nint config, int id, string path);
 
