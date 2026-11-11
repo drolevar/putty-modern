@@ -12,6 +12,11 @@
  * listen on 127.0.0.1 at the requested port and open a "forwarded-tcpip" channel to the client for each connection.
  * --no-forwarding refuses both, as a server that does not allow TCP forwarding does.
  *
+ * X11 forwarding: an "x11-req" on a session is accepted (--no-x11 refuses it). When the shell is then started the
+ * server opens an "x11" channel to the client, as the server of a remote program that wants to draw would, and sends the
+ * X11 connection setup request with the cookie the client chose; the reply comes back through the tunnel from the real X
+ * server and its first byte (1 = success, 0 = failed, 2 = more authentication) is reported as an "x11-reply" event.
+ *
  * --chatter: 150 ms after the server asks the keyboard-interactive question it sends the client one more packet
  * (an OpenSSH keep-alive request, which PuTTY does not expect before login). It wakes PuTTY's login code while the
  * question is still open, as a real OpenSSH server does; the toy server otherwise never sends anything meanwhile.
@@ -24,7 +29,7 @@
  * check that a login or a typed command really reached the server:
  *   {"event":"auth","method":"password","user":"test","ok":true}
  *   {"event":"shell"}    {"event":"command","text":"echo hi"}    {"event":"exec","text":"echo hi"}
- *   {"event":"tcpip","dest":"127.0.0.1:8080","ok":true}    {"event":"tcpip-forward","port":5000}    {"event":"tcpip-forward-cancel","port":5000}
+ *   {"event":"tcpip","dest":"127.0.0.1:8080","ok":true}   {"event":"x11-req","protocol":"MIT-MAGIC-COOKIE-1"}   {"event":"x11-open","ok":true}   {"event":"x11-reply","status":1}    {"event":"tcpip-forward","port":5000}    {"event":"tcpip-forward-cancel","port":5000}
  *
  * ssh2 is installed outside the source tree (see tools/start-ssh-test-server.ps1, which sets NODE_PATH).
  */
@@ -50,6 +55,7 @@ function parseArgs(argv) {
     motd: 'Welcome to the PuTTY modern test server.',
     chatter: false,
     noForwarding: false,
+    noX11: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const name = argv[i];
@@ -69,6 +75,7 @@ function parseArgs(argv) {
       case '--motd': options.motd = value(); break;
       case '--chatter': options.chatter = true; break;
       case '--no-forwarding': options.noForwarding = true; break;
+      case '--no-x11': options.noX11 = true; break;
       default: throw new Error(`unknown argument ${name}`);
     }
   }
@@ -242,10 +249,38 @@ function main() {
 
       client.on('session', (acceptSession) => {
         const session = acceptSession();
+        let x11 = null;
+        session.on('x11', (accept, reject, info) => {
+          if (options.noX11) { emit({ event: 'x11-req', ok: false }); return reject && reject(); }
+          x11 = info;
+          emit({ event: 'x11-req', ok: true, protocol: info.protocol, cookieLength: info.cookie.length / 2, screen: info.screen });
+          accept && accept();
+        });
+        const openX11Channel = () => {
+          if (!x11) return;
+          client.x11('127.0.0.1', 54321, (error, channel) => {
+            if (error) return emit({ event: 'x11-open', ok: false, error: String(error.message || error) });
+            emit({ event: 'x11-open', ok: true });
+            // The X11 connection setup request (little-endian): byte order, pad, protocol 11.0, the lengths of the
+            // authorisation name and data, pad, then name and data each padded to four bytes.
+            const name = Buffer.from(x11.protocol);
+            const cookie = Buffer.from(Buffer.from(x11.cookie).toString('latin1'), 'hex');     // the request carries the cookie as a hex string
+            const pad = (n) => Buffer.alloc((4 - (n % 4)) % 4);
+            const header = Buffer.alloc(12);
+            header[0] = 0x6c;
+            header.writeUInt16LE(11, 2);
+            header.writeUInt16LE(0, 4);
+            header.writeUInt16LE(name.length, 6);
+            header.writeUInt16LE(cookie.length, 8);
+            channel.write(Buffer.concat([header, name, pad(name.length), cookie, pad(cookie.length)]));
+            channel.once('data', (data) => { emit({ event: 'x11-reply', status: data[0], length: data.length, reason: data[0] === 1 ? undefined : data.subarray(8, 8 + data[1]).toString('latin1') }); channel.end(); });
+            channel.on('error', () => { /* a refused channel */ });
+          });
+        };
         session.on('pty', (accept) => accept && accept());
         session.on('window-change', (accept) => accept && accept());
         session.on('env', (accept) => accept && accept());
-        session.on('shell', (accept) => { emit({ event: 'shell' }); runShell(accept(), options); });
+        session.on('shell', (accept) => { emit({ event: 'shell' }); runShell(accept(), options); setTimeout(openX11Channel, 300); });
         session.on('exec', (accept, reject, info) => {
           const stream = accept();
           emit({ event: 'exec', text: info.command });

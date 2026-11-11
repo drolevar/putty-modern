@@ -36,7 +36,7 @@ if (-not (Test-Path (Join-Path $env:WINDIR 'System32\vcruntime140_1.dll'))) {
 }
 
 # The SSH checks need Node and the test server's package (installed once, into the shared folder).
-if ($Smoke -in 'ssh', 'settings') {
+if ($Smoke -in 'ssh', 'settings', 'x11') {
     Require 'node'
     if (-not (Test-Path (Join-Path $work 'artifacts\ssh-test-server\node_modules\ssh2'))) {
         Write-Host 'Installing the test SSH server''s package with npm ...'
@@ -58,6 +58,12 @@ if ($Smoke -eq 'agent' -and -not (Test-Path 'C:\Program Files\PuTTY\pageant.exe'
     Write-Host 'Installing PuTTY (for Pageant) with winget ...'
     & winget install --id PuTTY.PuTTY --exact --silent --accept-package-agreements --accept-source-agreements
     if (-not (Test-Path 'C:\Program Files\PuTTY\pageant.exe')) { Write-Host 'FAIL  winget did not install PuTTY'; exit 93 }
+}
+# The X11 check needs an X server on the guest's desktop: VcXsrv (winget), started by the check with access control off.
+if ($Smoke -eq 'x11' -and -not (Test-Path 'C:\Program Files\VcXsrv\vcxsrv.exe')) {
+    Write-Host 'Installing VcXsrv (an X server) with winget ...'
+    & winget install --id marha.VcXsrv --exact --silent --accept-package-agreements --accept-source-agreements
+    if (-not (Test-Path 'C:\Program Files\VcXsrv\vcxsrv.exe')) { Write-Host 'FAIL  winget did not install VcXsrv'; exit 89 }
 }
 # The check of input through a real IME needs one: Rime Weasel, a text service (TSF) like the Microsoft ones, installable
 # with winget without language packs (the Sandbox's Windows Update cannot add those).
