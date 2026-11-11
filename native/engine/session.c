@@ -63,6 +63,9 @@ struct pe_session {
         int confirm_kind;               /* INTERACT_CONFIRM: PE_CONFIRM_* */
         void (*confirm_callback)(void *ctx, SeatPromptResult result);
         void *confirm_ctx;
+        void (*log_callback)(void *ctx, int mode);  /* INTERACT_LOGFILE: logging.c's callback, mode 0 off, 1 append, 2 overwrite */
+        void *log_ctx;
+        int log_mode;                   /* the answer, when it came from inside the event */
         char *host, *keytype, *keystr;  /* a host key being confirmed: copies, since we answer later */
         int port;
         bool in_call;                   /* the host event is running: an answer then is returned, not called back */
@@ -233,7 +236,7 @@ static bool session_get_window_pixel_size(Seat *seat, int *x, int *y)
  * A host that answers from inside the event gets the cheap path: the answer is simply returned.
  */
 
-enum { INTERACT_NONE = 0, INTERACT_PROMPT, INTERACT_CONFIRM };
+enum { INTERACT_NONE = 0, INTERACT_PROMPT, INTERACT_CONFIRM, INTERACT_LOGFILE };
 
 static void interaction_clear(pe_session *s)
 {
@@ -446,15 +449,56 @@ static void session_eventlog(LogPolicy *lp, const char *event)
     HOST_EVENT(s, log, event);
 }
 
-/* We do not log to files yet, so there is never an existing file to ask about. */
+/*
+ * The session log file exists already and the settings say "ask" (Session > Logging > "Always ask the user what to do").
+ * logging.c wants 0 (disable logging), 1 (append), 2 (overwrite), or a negative number now and the answer later through
+ * callback(ctx, mode); until then it queues what is to be logged. The host is asked as a confirmation (kind
+ * PE_CONFIRM_LOG_FILE_EXISTS) and answers with Overwrite, Append or Cancel (= disable logging, the session goes on).
+ * Nobody to ask, or another question open: no logging, which is the safe answer (nothing is overwritten) and says so.
+ */
 static int session_askappend(LogPolicy *lp, Filename *filename,
                              void (*callback)(void *ctx, int result), void *ctx)
 {
-    (void)lp;
-    (void)filename;
-    (void)callback;
-    (void)ctx;
-    return 0;                   /* cancel */
+    pe_session *s = SESSION_FROM_LOGPOLICY(lp);
+    const char *path = filename_to_str(filename);
+    if (s->pending_close || !s->events.confirm || s->interaction.id != 0) {
+        char *note = dupprintf("The session log file \"%s\" exists already and could not be asked about; "
+                               "session logging is disabled", path);
+        HOST_EVENT(s, error, note, 0);
+        sfree(note);
+        return 0;
+    }
+
+    char *question = dupprintf("The session log file \"%s\" already exists. You can overwrite it with a new "
+                               "session log, append your session log to the end of it, or disable session "
+                               "logging for the remainder of this session.", path);
+    int32_t types[2] = { PE_DIALOG_TITLE, PE_DIALOG_PARA };
+    const char *texts[2] = { "Session log file exists", question };
+
+    s->interaction.id = ++s->next_interaction_id;
+    s->interaction.kind = INTERACT_LOGFILE;
+    s->interaction.confirm_kind = PE_CONFIRM_LOG_FILE_EXISTS;
+    s->interaction.log_callback = callback;
+    s->interaction.log_ctx = ctx;
+    s->interaction.host = dupstr(path);
+    s->interaction.keytype = dupstr("");
+    s->interaction.in_call = true;
+    s->interaction.answered = false;
+    HOST_EVENT(s, confirm, s->interaction.id, (int32_t)PE_CONFIRM_LOG_FILE_EXISTS, s->interaction.host, 0,
+               s->interaction.keytype, 2, types, texts);
+    s->interaction.in_call = false;
+    sfree(question);
+
+    if (s->interaction.answered) {
+        int mode = s->interaction.log_mode;
+        interaction_clear(s);
+        return mode;
+    }
+    if (s->pending_close) {
+        interaction_clear(s);
+        return 0;
+    }
+    return -1;                  /* the answer comes later, through the callback */
 }
 
 static void session_logging_error(LogPolicy *lp, const char *event)
@@ -851,8 +895,34 @@ PE_API int32_t pe_session_confirm_respond(pe_session *s, uint64_t id, int32_t an
     int32_t rc = pe_check_engine_thread();
     if (rc != PE_OK)
         return rc;
+    if (session_is_live(s) && !s->pending_close && interaction_matches(s, id, INTERACT_LOGFILE)) {
+        /* The log file question: overwrite, append or (cancel) no logging. logging.c: 2, 1, 0. */
+        int mode;
+        if (answer == PE_ANSWER_OVERWRITE)
+            mode = 2;
+        else if (answer == PE_ANSWER_APPEND)
+            mode = 1;
+        else if (answer == PE_ANSWER_CANCEL)
+            mode = 0;
+        else
+            return PE_ERR_FAILED;
+        if (s->interaction.in_call) {
+            s->interaction.answered = true;
+            s->interaction.log_mode = mode;
+            return PE_OK;
+        }
+        void (*callback)(void *, int) = s->interaction.log_callback;
+        void *ctx = s->interaction.log_ctx;
+        interaction_clear(s);
+        s->callback_depth++;    /* logging.c opens the file and writes what it queued, and may log events */
+        callback(ctx, mode);
+        s->callback_depth--;
+        return PE_OK;
+    }
     if (!session_is_live(s) || s->pending_close || !interaction_matches(s, id, INTERACT_CONFIRM))
         return PE_ERR_STATE;
+    if (answer == PE_ANSWER_OVERWRITE || answer == PE_ANSWER_APPEND)
+        return PE_ERR_FAILED;       /* only a log file question has those answers */
     if (answer != PE_ANSWER_CANCEL && answer != PE_ANSWER_ACCEPT && answer != PE_ANSWER_CONNECT_ONCE)
         return PE_ERR_FAILED;
 

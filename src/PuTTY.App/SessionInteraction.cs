@@ -246,6 +246,14 @@ internal sealed class SessionInteraction : IDisposable
             dialog.CloseButtonText = "Cancel";
             dialog.DefaultButton = ContentDialogButton.None;
         }
+        else if (e.Kind == SessionConfirmKind.LogFileExists)
+        {
+            // What PuTTY's own box offers when the session log file exists; Overwrite replaces data, so it is not the default.
+            dialog.PrimaryButtonText = "Append";
+            dialog.SecondaryButtonText = "Overwrite";
+            dialog.CloseButtonText = "Disable logging";
+            dialog.DefaultButton = ContentDialogButton.Primary;
+        }
         else
         {
             dialog.PrimaryButtonText = "Yes";
@@ -254,6 +262,24 @@ internal sealed class SessionInteraction : IDisposable
         }
 
         ContentDialogResult result = await ShowAsync(dialog);
+
+        if (e.Kind == SessionConfirmKind.LogFileExists)
+        {
+            switch (result)
+            {
+                case ContentDialogResult.Primary:
+                    e.Append();
+                    break;
+                case ContentDialogResult.Secondary:
+                    e.Overwrite();
+                    break;
+                default:
+                    e.Cancel();         // no logging for this session; the connection goes on
+                    break;
+            }
+
+            return;
+        }
 
         switch (result)
         {

@@ -111,6 +111,13 @@ public enum SessionConfirmKind
 
     /// <summary>The best host key on record is below the threshold although a stronger one is on offer.</summary>
     WeakCachedHostKey = 2,
+
+    /// <summary>
+    /// The session log file exists already (<see cref="SessionConfirmEventArgs.Host"/> is its path) and the settings
+    /// say to ask. Answer with <see cref="SessionConfirmEventArgs.Overwrite"/>, <see cref="SessionConfirmEventArgs.Append"/>
+    /// or <see cref="SessionConfirmEventArgs.Cancel"/>, which turns logging off for the session (the connection goes on).
+    /// </summary>
+    LogFileExists = 3,
 }
 
 /// <summary>The kind of a piece of a confirmation dialog's text.</summary>
@@ -190,8 +197,17 @@ public sealed class SessionConfirmEventArgs : EventArgs
     /// <summary>Yes, this time only (a host key is not remembered). Returns false if the question is no longer open.</summary>
     public bool ConnectOnce() => Deliver(PuttySession.AnswerConnectOnce);
 
-    /// <summary>No: the connection is abandoned. Returns false if the question is no longer open.</summary>
+    /// <summary>
+    /// No: the connection is abandoned (for a <see cref="SessionConfirmKind.LogFileExists"/> question: logging is
+    /// turned off and the connection goes on). Returns false if the question is no longer open.
+    /// </summary>
     public bool Cancel() => Deliver(PuttySession.AnswerCancel);
+
+    /// <summary>A <see cref="SessionConfirmKind.LogFileExists"/> question only: replace the log file with a new one.</summary>
+    public bool Overwrite() => Deliver(PuttySession.AnswerOverwrite);
+
+    /// <summary>A <see cref="SessionConfirmKind.LogFileExists"/> question only: add the session log to the end of the file.</summary>
+    public bool Append() => Deliver(PuttySession.AnswerAppend);
 
     private bool Deliver(int answer)
     {
@@ -210,6 +226,8 @@ public sealed unsafe partial class PuttySession
     internal const int AnswerCancel = 0;
     internal const int AnswerAccept = 1;
     internal const int AnswerConnectOnce = 2;
+    internal const int AnswerOverwrite = 3;
+    internal const int AnswerAppend = 4;
 
     /// <summary>
     /// A question for the user: a user name, a password, a passphrase, keyboard-interactive

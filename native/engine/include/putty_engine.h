@@ -129,6 +129,7 @@ typedef struct pe_session_events {
 #define PE_CONFIRM_HOST_KEY          0   /* unknown or changed host key: accept, connect once, cancel */
 #define PE_CONFIRM_WEAK_CRYPTO       1   /* an algorithm below the warning threshold: yes or no */
 #define PE_CONFIRM_WEAK_CACHED_KEY   2   /* the best cached host key is below the threshold: yes or no */
+#define PE_CONFIRM_LOG_FILE_EXISTS   3   /* the session log file exists (`host` is its path): overwrite, append, or cancel = no logging */
 
 /* Types of the pieces of a confirmation dialog's text; the same values as PuTTY's SDT_*. */
 #define PE_DIALOG_PARA              0   /* a paragraph */
@@ -145,6 +146,8 @@ typedef struct pe_session_events {
 #define PE_ANSWER_CANCEL        0   /* refuse: the connection is abandoned */
 #define PE_ANSWER_ACCEPT        1   /* yes; for a host key also store it in PuTTY's host key cache */
 #define PE_ANSWER_CONNECT_ONCE  2   /* a host key: yes, this time only. For the other kinds, the same as ACCEPT. */
+#define PE_ANSWER_OVERWRITE     3   /* a log file question only: replace the file */
+#define PE_ANSWER_APPEND        4   /* a log file question only: add to the file. (CANCEL there means: no logging, the session goes on.) */
 
 /*
  * Optional settings for a session; everything is optional. size is sizeof(pe_session_options),
