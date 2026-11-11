@@ -147,6 +147,12 @@ PE_API int32_t pe_init(void)
     sk_init();
     setup_gui_timing();
     rearm_timers();
+    /* What window.c does at start-up: without it a new Conf has protocol SSH but port 0. */
+    settings_set_default_protocol(PROT_SSH);
+    {
+        const struct BackendVtable *ssh = backend_vt_from_proto(PROT_SSH);
+        settings_set_default_port(ssh ? ssh->default_port : 0);
+    }
     winselgui_set_hwnd(hwnd);
     request_callback_notifications(notify_callbacks_pending, NULL);
 
@@ -168,6 +174,7 @@ PE_API int32_t pe_shutdown(void)
     request_callback_notifications(NULL, NULL);
     for (int i = 0; i < PE_MAX_DRAIN && run_toplevel_callbacks(); i++)
         ;
+    pe_configs_close_all();     /* settings dialogs the host forgot */
     pe_sessions_close_all();    /* sessions the host forgot; their handles become invalid */
     sk_cleanup();
     dispatch_pending_messages();

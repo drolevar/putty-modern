@@ -1,5 +1,7 @@
 # Front-end contract: what the engine must supply to link PuTTY's SSH client
 
+> **Update (slice 4): every item below is now implemented.** The 30 `dlg_*` functions and `show_ca_config_box` are in `native/engine/configbox.c`, `config.c` and `dialog.c` are part of the default engine, and the `full` build configuration this document describes no longer exists. What follows is the original measurement, kept for the reasoning.
+
 Result of Beads issue `putty-modern-q59`, measured against PuTTY `29dd4b17` (`external/putty`).
 
 **Status after slice 1a:** the 14 symbols outside the settings dialog (printing 6, jump list 3,

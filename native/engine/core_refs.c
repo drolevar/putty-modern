@@ -7,10 +7,6 @@
  * PuTTY front end must supply: a missing one is a link error here, not a crash
  * at run time. Delete a reference and the link would "succeed" while silently
  * dropping that part of PuTTY, so keep one per area.
- *
- * With PUTTY_ENGINE_FULL the config-box description is included too, which
- * needs the dlg_* functions (slice 4); that configuration is expected to fail
- * to link and its unresolved externals are the to-do list.
  */
 
 #include "putty.h"
@@ -20,7 +16,5 @@ const void *const pe_core_refs[] = {
     (const void *)load_settings,     /* settings.c: saved sessions */
     (const void *)term_init,         /* terminal/terminal.c: the emulator */
     (const void *)ldisc_create,      /* ldisc.c: line discipline */
-#ifdef PUTTY_ENGINE_FULL
-    (const void *)setup_config_box,  /* config.c: the settings dialog description */
-#endif
+    (const void *)setup_config_box,  /* config.c: the settings dialog description (engine/configbox.c is its front end) */
 };

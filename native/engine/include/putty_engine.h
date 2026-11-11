@@ -403,6 +403,148 @@ PE_API int32_t pe_diag_render_text(const wchar_t *font_family, float size_px, co
 PE_API int32_t pe_diag_generate_ed25519_key(const char *path_utf8, const char *passphrase_utf8,
                                             char *public_line, int32_t capacity);
 
+/* ----- The settings dialog ----------------------------------------------------------------
+ *
+ * PuTTY describes its whole configuration box as a tree of groups of controls (config.c) and
+ * drives it through small handler functions: the front end shows the controls, reports what the user
+ * does, and PuTTY's handlers change the settings and the other controls in reply. The engine runs that
+ * machinery and keeps the state of every control; the host draws them.
+ *
+ *   1. pe_config_open, then pe_config_describe: the groups and controls arrive through `group` and
+ *      `control`. Every control has a stable integer id.
+ *   2. pe_config_refresh: PuTTY sets every control from the settings; each one that changes is reported
+ *      through `changed`, and the host reads its state with the getters.
+ *   3. The user acts: pe_config_user_* tell PuTTY, whose handlers answer with more `changed` events.
+ *   4. `end` says the dialog is over: pe_config_start_session opens a session with the edited settings
+ *      (Open), or the host just closes the dialog (Cancel). A saved session is written by PuTTY itself,
+ *      from the Save button of the Session page.
+ */
+
+typedef struct pe_config pe_config;
+
+#define PE_CTRL_TEXT        0   /* a line of text */
+#define PE_CTRL_EDITBOX     1   /* label and edit box; with PE_CTRLF_HAS_LIST a combo box */
+#define PE_CTRL_RADIO       2   /* label and a group of radio buttons */
+#define PE_CTRL_CHECKBOX    3
+#define PE_CTRL_BUTTON      4
+#define PE_CTRL_LISTBOX     5   /* a list box, or a drop-down list when list_height is 0 */
+#define PE_CTRL_COLUMNS     6   /* the layout of the controls that follow: ncolumns, percentages */
+#define PE_CTRL_FILESELECT  7   /* label, file name and a Browse button */
+#define PE_CTRL_FONTSELECT  8   /* label, font description and a Change button */
+
+#define PE_CTRLF_PASSWORD     0x001   /* edit box: hide what is typed */
+#define PE_CTRLF_HAS_LIST     0x002   /* edit box: a combo box, with the list box functions */
+#define PE_CTRLF_DRAGLIST     0x004   /* list box: the user can reorder it */
+#define PE_CTRLF_HSCROLL      0x008   /* list box: a horizontal scroll bar if needed */
+#define PE_CTRLF_DEFAULT      0x010   /* button: the default (Enter) */
+#define PE_CTRLF_CANCEL       0x020   /* button: Cancel (Escape) */
+#define PE_CTRLF_JUST_BUTTON  0x040   /* file selector: only a button, no file name shown */
+#define PE_CTRLF_FOR_WRITING  0x080   /* file selector: choosing a file to write */
+#define PE_CTRLF_WRAP         0x100   /* text: wraps over several lines */
+
+#define PE_FILTER_ALL_FILES   0
+#define PE_FILTER_KEY_FILES   1       /* .ppk */
+#define PE_FILTER_DYNLIB      2
+#define PE_FILTER_SOUND       3
+
+typedef struct pe_ctrl_info {
+    int32_t id;
+    int32_t type;                 /* PE_CTRL_* */
+    int32_t flags;                /* PE_CTRLF_* */
+    int32_t group;                /* index of the group (a box on a page) the control is in */
+    int32_t column_start;         /* which of the group's columns it starts in ... */
+    int32_t column_span;          /* ... and how many it spans */
+    int32_t percent_width;        /* edit box, list box: share of the width, 100 = label on its own line */
+    int32_t list_height;          /* list box: lines; 0 means a drop-down list */
+    int32_t multisel;             /* list box: 0 one selection, 1 individual items, 2 ranges */
+    int32_t ncolumns;             /* radio: buttons per row; list box: tab-separated columns; PE_CTRL_COLUMNS: columns */
+    const int32_t *percentages;   /* ncolumns widths in percent, or NULL */
+    int32_t nbuttons;             /* radio */
+    const char *const *buttons;   /* radio: the labels */
+    const char *shortcuts;        /* radio: one letter per button, ' ' for none; others: NULL */
+    int32_t shortcut;             /* the keyboard shortcut letter of the control, or 0 */
+    const char *label;            /* UTF-8, may be NULL (a check box's label is its text) */
+    const char *title;            /* file selector: title of the file dialog */
+    int32_t filter;               /* file selector: PE_FILTER_* */
+    int32_t align_next_to;        /* id of the control this one lines up with, or -1 */
+} pe_ctrl_info;
+
+/*
+ * What the engine reports about a dialog. Every callback runs on the engine thread, inside the call
+ * that caused it, and may be NULL. Strings are UTF-8 and valid only during the call. A callback may
+ * close the dialog (pe_config_close defers the teardown until PuTTY has unwound).
+ */
+typedef struct pe_config_events {
+    /* From pe_config_describe: a group of controls. path is the page ("Connection/SSH/Auth"), name the
+     * group's short name and title its heading; both are empty for the heading of the page itself. */
+    void (*group)(void *user, int32_t index, const char *path, const char *name, const char *title);
+    void (*control)(void *user, const pe_ctrl_info *info);
+
+    /* The value or the list of control `id` changed: read it again with the getters. */
+    void (*changed)(void *user, int32_t id);
+    void (*label_changed)(void *user, int32_t id, const char *text);
+    /* A burst of changes is between begin = 1 and begin = 0: the host may postpone redrawing. */
+    void (*update)(void *user, int32_t begin);
+    /* Something to tell the user: is_error is non-zero for an error, zero for a warning. */
+    void (*message)(void *user, const char *text, int32_t is_error);
+    void (*beep)(void *user);
+    /* The dialog wants the focus on control `id`. */
+    void (*focus)(void *user, int32_t id);
+    /* A colour chooser is wanted for control `id`, starting at r, g, b: answer with pe_config_colour_result. */
+    void (*colour_request)(void *user, int32_t id, int32_t r, int32_t g, int32_t b);
+    /* The dialog is over; value 1 means "go" (Open, or Apply), 0 means cancelled. */
+    void (*end)(void *user, int32_t value);
+} pe_config_events;
+
+/* Creates a dialog for a new session, on the built-in defaults, or with PE_OPT_SAVED_DEFAULTS in `flags`
+ * on the user's saved "Default Settings". */
+PE_API int32_t pe_config_open(uint32_t flags, const pe_config_events *events, void *user, pe_config **out);
+
+/* Reports every group and control through the events, in order. */
+PE_API int32_t pe_config_describe(pe_config *config);
+
+/* Has PuTTY set all the controls from the settings (what happens on first showing and after Load). */
+PE_API int32_t pe_config_refresh(pe_config *config);
+
+/* The page the host is showing, "Session" or "Connection/SSH"; "" or NULL when it shows none or all. PuTTY
+ * asks whether a control is visible in one corner case (the Open button). */
+PE_API int32_t pe_config_set_page(pe_config *config, const char *path);
+
+/* Which control has the keyboard focus now (PuTTY asks which had it last). */
+PE_API int32_t pe_config_user_focus(pe_config *config, int32_t id);
+
+/* ----- What the user did ----- */
+PE_API int32_t pe_config_user_set_text(pe_config *config, int32_t id, const char *utf8);      /* edit box */
+PE_API int32_t pe_config_user_set_checked(pe_config *config, int32_t id, int32_t checked);
+PE_API int32_t pe_config_user_set_radio(pe_config *config, int32_t id, int32_t button);
+/* A list entry was selected (selected = 1) or unselected, by position; for a single-selection list that
+ * replaces the selection. */
+PE_API int32_t pe_config_user_select(pe_config *config, int32_t id, int32_t index, int32_t selected);
+PE_API int32_t pe_config_user_action(pe_config *config, int32_t id);                          /* button; list double click */
+PE_API int32_t pe_config_user_set_file(pe_config *config, int32_t id, const char *utf8_path);
+PE_API int32_t pe_config_user_set_font(pe_config *config, int32_t id, const char *name, int32_t height,
+                                       int32_t bold, int32_t charset);
+PE_API int32_t pe_config_colour_result(pe_config *config, int32_t id, int32_t ok, int32_t r, int32_t g, int32_t b);
+
+/* ----- Reading the state of a control. The text getters write at most capacity bytes including the NUL
+ * and return the length needed without it; pass NULL and 0 to ask for the size. ----- */
+PE_API int32_t pe_config_get_text(pe_config *config, int32_t id, char *buffer, int32_t capacity);   /* edit box, text, current label */
+PE_API int32_t pe_config_get_checked(pe_config *config, int32_t id);
+PE_API int32_t pe_config_get_radio(pe_config *config, int32_t id);
+PE_API int32_t pe_config_list_count(pe_config *config, int32_t id);
+PE_API int32_t pe_config_list_item(pe_config *config, int32_t id, int32_t index, char *buffer, int32_t capacity,
+                                   int32_t *item_id, int32_t *selected);
+PE_API int32_t pe_config_get_file(pe_config *config, int32_t id, char *buffer, int32_t capacity);
+PE_API int32_t pe_config_get_font(pe_config *config, int32_t id, char *name, int32_t capacity, int32_t *height,
+                                  int32_t *bold, int32_t *charset);
+
+/* Opens a session with the settings as edited (what Open does). The `events` and `user` are those of
+ * pe_session_open. PE_ERR_FAILED if the settings name no host. */
+PE_API int32_t pe_config_start_session(pe_config *config, const pe_session_events *events, void *user,
+                                       pe_session **out_session);
+
+/* Frees the dialog. Safe from inside one of its callbacks. */
+PE_API int32_t pe_config_close(pe_config *config);
 #ifdef __cplusplus
 }
 #endif

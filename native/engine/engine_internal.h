@@ -14,6 +14,16 @@
 /* PE_OK if the caller is on the engine thread, PE_ERR_STATE / PE_ERR_THREAD otherwise. */
 int32_t pe_check_engine_thread(void);
 
+/* Text in PuTTY's encodings (text.c): `is_utf8` says whether PuTTY's side is UTF-8 or the ANSI code page. */
+char *pe_text_to_utf8(const char *text, bool is_utf8);
+char *pe_text_from_utf8(const char *utf8, bool want_utf8);
+
+/* Opens a session from a Conf (copied, so the caller keeps its own): what the settings dialog's Open does. */
+int32_t pe_session_open_conf(Conf *conf, const pe_session_events *events, void *user, pe_session **out_session);
+
+/* Frees every settings dialog that is still open (configbox.c). Called by pe_shutdown. */
+void pe_configs_close_all(void);
+
 /* Closes every session that is still open. Called by pe_shutdown before sockets are closed. */
 void pe_sessions_close_all(void);
 

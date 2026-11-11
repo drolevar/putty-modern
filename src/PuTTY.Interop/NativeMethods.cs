@@ -47,6 +47,74 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_sessions_enumerate")]
     internal static unsafe partial int SessionsEnumerate(delegate* unmanaged<nint, byte*, void> callback, nint user);
 
+    // ----- The settings dialog -----
+
+    [LibraryImport(Library, EntryPoint = "pe_config_open")]
+    internal static unsafe partial int ConfigOpen(uint flags, NativeConfigEvents* events, nint user, out nint config);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_describe")]
+    internal static partial int ConfigDescribe(nint config);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_refresh")]
+    internal static partial int ConfigRefresh(nint config);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_set_page", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int ConfigSetPage(nint config, string? path);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_user_focus")]
+    internal static partial int ConfigUserFocus(nint config, int id);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_user_set_text", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int ConfigUserSetText(nint config, int id, string text);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_user_set_checked")]
+    internal static partial int ConfigUserSetChecked(nint config, int id, int isChecked);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_user_set_radio")]
+    internal static partial int ConfigUserSetRadio(nint config, int id, int button);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_user_select")]
+    internal static partial int ConfigUserSelect(nint config, int id, int index, int selected);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_user_action")]
+    internal static partial int ConfigUserAction(nint config, int id);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_user_set_file", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int ConfigUserSetFile(nint config, int id, string path);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_user_set_font", StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int ConfigUserSetFont(nint config, int id, string name, int height, int bold, int charset);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_colour_result")]
+    internal static partial int ConfigColourResult(nint config, int id, int ok, int r, int g, int b);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_get_text")]
+    internal static unsafe partial int ConfigGetText(nint config, int id, byte* buffer, int capacity);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_get_checked")]
+    internal static partial int ConfigGetChecked(nint config, int id);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_get_radio")]
+    internal static partial int ConfigGetRadio(nint config, int id);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_list_count")]
+    internal static partial int ConfigListCount(nint config, int id);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_list_item")]
+    internal static unsafe partial int ConfigListItem(nint config, int id, int index, byte* buffer, int capacity, int* itemId, int* selected);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_get_file")]
+    internal static unsafe partial int ConfigGetFile(nint config, int id, byte* buffer, int capacity);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_get_font")]
+    internal static unsafe partial int ConfigGetFont(nint config, int id, byte* name, int capacity, int* height, int* bold, int* charset);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_start_session")]
+    internal static unsafe partial int ConfigStartSession(nint config, NativeSessionEvents* events, nint user, out nint session);
+
+    [LibraryImport(Library, EntryPoint = "pe_config_close")]
+    internal static partial int ConfigClose(nint config);
+
     [LibraryImport(Library, EntryPoint = "pe_session_prompt_respond")]
     internal static unsafe partial int SessionPromptRespond(nint session, ulong id, byte** answers, int count);
 
@@ -143,6 +211,47 @@ internal unsafe struct NativeSessionEvents
     public delegate* unmanaged<nint, void> Closed;                     // user
     public delegate* unmanaged<nint, ulong, byte*, byte*, int, int, byte**, int*, void> Prompt;   // user, id, name, instruction, fromServer, count, prompts, echo
     public delegate* unmanaged<nint, ulong, int, byte*, int, byte*, int, int*, byte**, void> Confirm;   // user, id, kind, host, port, keyType, count, types, texts
+}
+
+/// <summary>Mirrors <c>pe_ctrl_info</c>.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeCtrlInfo
+{
+    public int Id;
+    public int Type;
+    public int Flags;
+    public int Group;
+    public int ColumnStart;
+    public int ColumnSpan;
+    public int PercentWidth;
+    public int ListHeight;
+    public int MultiSel;
+    public int NColumns;
+    public int* Percentages;
+    public int NButtons;
+    public byte** Buttons;
+    public byte* Shortcuts;
+    public int Shortcut;
+    public byte* Label;
+    public byte* Title;
+    public int Filter;
+    public int AlignNextTo;
+}
+
+/// <summary>Mirrors <c>pe_config_events</c>.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeConfigEvents
+{
+    public delegate* unmanaged<nint, int, byte*, byte*, byte*, void> Group;     // user, index, path, name, title
+    public delegate* unmanaged<nint, NativeCtrlInfo*, void> Control;
+    public delegate* unmanaged<nint, int, void> Changed;                         // user, id
+    public delegate* unmanaged<nint, int, byte*, void> LabelChanged;             // user, id, text
+    public delegate* unmanaged<nint, int, void> Update;                          // user, begin
+    public delegate* unmanaged<nint, byte*, int, void> Message;                  // user, text, isError
+    public delegate* unmanaged<nint, void> Beep;
+    public delegate* unmanaged<nint, int, void> Focus;
+    public delegate* unmanaged<nint, int, int, int, int, void> ColourRequest;    // user, id, r, g, b
+    public delegate* unmanaged<nint, int, void> End;                             // user, value
 }
 
 /// <summary>Mirrors <c>pe_session_options</c>.</summary>

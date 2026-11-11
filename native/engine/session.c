@@ -233,45 +233,6 @@ static void interaction_clear(pe_session *s)
     memset(&s->interaction, 0, sizeof(s->interaction));
 }
 
-/* Text PuTTY gives us is UTF-8 only when it says so; otherwise it is in the ANSI code page. */
-static char *text_to_utf8(const char *text, bool is_utf8)
-{
-    if (is_utf8 || !text)
-        return dupstr(text ? text : "");
-    int wide_len = MultiByteToWideChar(CP_ACP, 0, text, -1, NULL, 0);
-    if (wide_len <= 0)
-        return dupstr(text);
-    wchar_t *wide = snewn(wide_len, wchar_t);
-    MultiByteToWideChar(CP_ACP, 0, text, -1, wide, wide_len);
-    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wide, -1, NULL, 0, NULL, NULL);
-    char *out = snewn(utf8_len > 0 ? utf8_len : 1, char);
-    if (utf8_len > 0)
-        WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, utf8_len, NULL, NULL);
-    else
-        out[0] = '\0';
-    sfree(wide);
-    return out;
-}
-
-static char *text_from_utf8(const char *utf8, bool want_utf8)
-{
-    if (want_utf8 || !utf8)
-        return dupstr(utf8 ? utf8 : "");
-    int wide_len = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
-    if (wide_len <= 0)
-        return dupstr(utf8);
-    wchar_t *wide = snewn(wide_len, wchar_t);
-    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, wide_len);
-    int acp_len = WideCharToMultiByte(CP_ACP, 0, wide, -1, NULL, 0, NULL, NULL);
-    char *out = snewn(acp_len > 0 ? acp_len : 1, char);
-    if (acp_len > 0)
-        WideCharToMultiByte(CP_ACP, 0, wide, -1, out, acp_len, NULL, NULL);
-    else
-        out[0] = '\0';
-    sfree(wide);
-    return out;
-}
-
 static SeatPromptResult session_get_userpass_input(Seat *seat, prompts_t *p)
 {
     pe_session *s = SESSION_FROM_SEAT(seat);
@@ -291,11 +252,11 @@ static SeatPromptResult session_get_userpass_input(Seat *seat, prompts_t *p)
     const char **texts = snewn(count ? count : 1, const char *);
     int32_t *echo = snewn(count ? count : 1, int32_t);
     for (size_t i = 0; i < count; i++) {
-        texts[i] = text_to_utf8(p->prompts[i]->prompt, p->utf8);
+        texts[i] = pe_text_to_utf8(p->prompts[i]->prompt, p->utf8);
         echo[i] = p->prompts[i]->echo ? 1 : 0;
     }
-    char *name = text_to_utf8(p->name, p->utf8);
-    char *instruction = text_to_utf8(p->instruction, p->utf8);
+    char *name = pe_text_to_utf8(p->name, p->utf8);
+    char *instruction = pe_text_to_utf8(p->instruction, p->utf8);
 
     s->interaction.id = ++s->next_interaction_id;
     s->interaction.kind = INTERACT_PROMPT;
@@ -665,6 +626,26 @@ PE_API int32_t pe_session_open_saved(const char *name, const pe_session_options 
     return rc;
 }
 
+int32_t pe_session_open_conf(Conf *conf, const pe_session_events *events, void *user, pe_session **out_session)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    if (!conf || !events || !out_session)
+        return PE_ERR_FAILED;
+    if (!conf_launchable(conf))
+        return PE_ERR_FAILED;               /* no host name (or serial line) to connect to */
+    const BackendVtable *vt = backend_vt_from_proto(conf_get_int(conf, CONF_protocol));
+    if (!vt)
+        return PE_ERR_FAILED;
+
+    Conf *copy = conf_copy(conf);
+    char *host = dupstr(conf_get_str(copy, CONF_host));
+    int port = conf_get_int(copy, CONF_port);
+    rc = session_start(copy, host, port, vt, events, user, out_session);
+    sfree(host);
+    return rc;
+}
 PE_API int32_t pe_sessions_enumerate(pe_name_fn callback, void *user)
 {
     int32_t rc = pe_check_engine_thread();
@@ -742,7 +723,7 @@ PE_API int32_t pe_session_prompt_respond(pe_session *s, uint64_t id, const char 
             return PE_ERR_FAILED;
     }
     for (int32_t i = 0; i < count; i++) {
-        char *converted = text_from_utf8(answers[i], p->utf8);
+        char *converted = pe_text_from_utf8(answers[i], p->utf8);
         prompt_set_result(p->prompts[i], converted);
         smemclr(converted, strlen(converted));      /* it may be a password */
         sfree(converted);

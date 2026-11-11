@@ -132,6 +132,7 @@ public sealed unsafe partial class PuttySession : IDisposable
     private readonly SessionProtocol protocol;
     private readonly PuttySessionOptions? options;
     private readonly string? savedName;     // set for a session opened from PuTTY's storage
+    private readonly NativeOpener? opener;  // set for a session whose settings come from somewhere else (the settings dialog)
 
     private nint handle;
     private GCHandle self;          // lets native code find this object again
@@ -148,6 +149,18 @@ public sealed unsafe partial class PuttySession : IDisposable
         this.protocol = protocol;
         this.options = options;
     }
+
+    /// <summary>How a session that is not opened by host and port asks the engine to open it.</summary>
+    internal unsafe delegate int NativeOpener(NativeSessionEvents* events, nint user, out nint session);
+
+    private PuttySession(string description, NativeOpener opener)
+    {
+        host = description;             // only for messages
+        this.opener = opener;
+    }
+
+    /// <summary>A session opened by a native call of the caller's (the settings dialog's Open); not started yet.</summary>
+    internal static PuttySession FromOpener(string description, NativeOpener opener) => new(description, opener);
 
     private PuttySession(string savedName, PuttySessionOptions? overrides)
     {
@@ -234,10 +247,12 @@ public sealed unsafe partial class PuttySession : IDisposable
         nint native;
         try
         {
-            result = savedName is not null
-                ? NativeMethods.SessionOpenSaved(savedName, &native_options, &events, GCHandle.ToIntPtr(self), out native)
-                : NativeMethods.SessionOpenEx(
-                    host, port, (int)protocol, &native_options, &events, GCHandle.ToIntPtr(self), out native);
+            result = opener is not null
+                ? opener(&events, GCHandle.ToIntPtr(self), out native)
+                : savedName is not null
+                    ? NativeMethods.SessionOpenSaved(savedName, &native_options, &events, GCHandle.ToIntPtr(self), out native)
+                    : NativeMethods.SessionOpenEx(
+                        host, port, (int)protocol, &native_options, &events, GCHandle.ToIntPtr(self), out native);
         }
         finally
         {
@@ -250,9 +265,11 @@ public sealed unsafe partial class PuttySession : IDisposable
             self.Free();
             disposed = true;
             string detail = LastError is { } message ? $" ({message})" : string.Empty;
-            throw new InvalidOperationException(savedName is not null
-                ? $"Could not open the saved session \"{savedName}\"{detail}."
-                : $"Could not open a {protocol} session to {host}:{port}{detail}.");
+            throw new InvalidOperationException(opener is not null
+                ? $"Could not open a session from {host}{detail}. Does it name a host?"
+                : savedName is not null
+                    ? $"Could not open the saved session \"{savedName}\"{detail}."
+                    : $"Could not open a {protocol} session to {host}:{port}{detail}.");
         }
 
         handle = native;

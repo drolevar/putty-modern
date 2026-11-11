@@ -33,10 +33,6 @@ set(PUTTY_LIB_DIR "${PUTTY_BINARY_DIR}/lib")      # every PuTTY static library l
 # configured Debug; mixing /MD and /MDd objects fails to link (LNK2038).
 set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
 
-option(PUTTY_ENGINE_FULL
-  "Also compile PuTTY's config-box description (config.c, dialog.c), which needs the 30 dlg_* functions the engine does not implement yet. EXPECTED TO FAIL TO LINK: the unresolved externals are the to-do list (see docs/front-end-contract.md)."
-  OFF)
-
 # PuTTY static libraries the engine links (the plink target in
 # external/putty/CMakeLists.txt shows what an SSH client needs). guimisc comes first: it
 # supplies the socket event handling for a message-loop GUI (WSAAsyncSelect), and the
@@ -91,16 +87,13 @@ set(PUTTY_CORE_SOURCES
   ldisc.c                          # line discipline
   windows/unicode.c                # init_ucs (character sets), check_compose, the keyboard-layout helpers
   stubs/no-printing.c              # PuTTY's own stub: printing is out of scope
-  windows/no-jump-list.c)          # PuTTY's own stub: no taskbar jump list yet
+  windows/no-jump-list.c           # PuTTY's own stub: no taskbar jump list yet
+  config.c dialog.c)               # the settings dialog's description and its control tree (engine/configbox.c is the front end)
 
-set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/termwin.c engine/render.cpp engine/diag_keys.c engine/core_refs.c)
+set(ENGINE_SOURCES engine/engine.c engine/frontend.c engine/eventloop.c engine/session.c engine/keys.c engine/termwin.c engine/render.cpp engine/diag_keys.c engine/text.c engine/configbox.c engine/core_refs.c)
 
-if(PUTTY_ENGINE_FULL)
-  # The config-box description. Needs the dlg_* functions and show_ca_config_box (slice 4).
-  # Not stubs/no-ca-config.c: that is for programs WITHOUT SSH code; ours links ssh/ca-config.c,
-  # which provides the real has_ca_config_box and setup_ca_config_box.
-  list(APPEND PUTTY_CORE_SOURCES config.c dialog.c)
-endif()
+# Not stubs/no-ca-config.c: that is for programs WITHOUT SSH code; ours links ssh/ca-config.c,
+# which provides the real has_ca_config_box and setup_ca_config_box.
 
 list(TRANSFORM PUTTY_CORE_SOURCES PREPEND "${PUTTY_SOURCE_DIR}/")
 list(APPEND ENGINE_SOURCES ${PUTTY_CORE_SOURCES})
@@ -132,9 +125,6 @@ target_compile_definitions(puttyengine PRIVATE
   _CRT_SECURE_NO_WARNINGS
   _WINSOCK_DEPRECATED_NO_WARNINGS
   _ARM_WINAPI_PARTITION_DESKTOP_SDK_AVAILABLE)
-if(PUTTY_ENGINE_FULL)
-  target_compile_definitions(puttyengine PRIVATE PUTTY_ENGINE_FULL)
-endif()
 
 list(TRANSFORM PUTTY_LIBS PREPEND "putty::" OUTPUT_VARIABLE _putty_link_targets)
 target_link_libraries(puttyengine PRIVATE
