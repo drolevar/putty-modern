@@ -78,6 +78,10 @@ void pe_render_underline(pe_renderer *r, int32_t col, int32_t row, int32_t cells
 /* A solid rectangle in pixels, for cursor shapes, strike-through and selection. */
 void pe_render_rect(pe_renderer *r, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t rgb);
 
+/* A shield with a tick in the box (the terminal's trust sigil); the box is cleared to `background` first. Vector shapes, so sharp at any size. */
+void pe_render_shield(pe_renderer *r, int32_t x, int32_t y, int32_t width, int32_t height,
+                      uint32_t background, uint32_t body, uint32_t mark);
+
 /* A solid rectangle in pixels, for cursor shapes, strike-through and selection. */
 void pe_render_rect(pe_renderer *r, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t rgb);
 

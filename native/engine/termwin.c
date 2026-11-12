@@ -396,13 +396,17 @@ static void tw_draw_cursor(TermWin *tw, int x, int y, wchar_t *text, int len,
 
 static void tw_draw_trust_sigil(TermWin *tw, int x, int y)
 {
-    /* PuTTY draws an icon; the host shows trust some other way. A solid block marks the cells. */
+    /*
+     * The emulator puts this at the start of each line that PuTTY itself wrote (the login's status lines), so that a
+     * server cannot fake them. PuTTY draws its own icon in the two cells; we draw a green shield with a tick, as vector
+     * shapes (render.cpp), on the default background.
+     */
     pe_termwin *w = TW(tw);
     if (!w->renderer || !w->drawing)
         return;
     int32_t cw = 0, ch = 0;
     pe_render_cell_size(w->renderer, &cw, &ch);
-    pe_render_rect(w->renderer, x * cw, y * ch, cw * 2, ch, w->colours[256]);
+    pe_render_shield(w->renderer, x * cw, y * ch, cw * 2, ch, w->colours[258], 0x2EA043, 0xFFFFFF);
 }
 
 /*

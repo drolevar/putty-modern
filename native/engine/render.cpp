@@ -292,6 +292,59 @@ void pe_render_rect(pe_renderer *r, int32_t x, int32_t y, int32_t width, int32_t
                                r->brush.Get());
 }
 
+/*
+ * A shield with a tick inside the box (x, y, width, height), for the terminal's trust sigil: the mark the emulator puts at
+ * the start of a line that PuTTY itself wrote (the login's status lines) and not the server. Drawn as vector shapes, so it
+ * is as sharp at any font size or display scale as the text next to it. The box is cleared to `background` first.
+ */
+void pe_render_shield(pe_renderer *r, int32_t x, int32_t y, int32_t width, int32_t height,
+                      uint32_t background, uint32_t body, uint32_t mark)
+{
+    if (!r || width < 4 || height < 4)
+        return;
+    pe_render_rect(r, x, y, width, height, background);
+
+    const float pad = std::fmax(1.0f, std::floor(height / 8.0f));
+    const float top = y + pad;
+    const float bottom = y + height - pad;
+    const float sh = bottom - top;
+    const float sw = std::fmin(width - 2 * pad, sh * 0.82f);
+    const float cx = x + width / 2.0f;
+    const float half = sw / 2.0f;
+    if (sh < 3 || sw < 3)
+        return;
+
+    ComPtr<ID2D1PathGeometry> path;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(r->d2d->CreatePathGeometry(&path)) || FAILED(path->Open(&sink)))
+        return;
+    sink->BeginFigure(D2D1::Point2F(cx, top), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(cx + half, top + sh * 0.14f));
+    sink->AddLine(D2D1::Point2F(cx + half, top + sh * 0.52f));
+    sink->AddBezier(D2D1::BezierSegment(D2D1::Point2F(cx + half, top + sh * 0.80f),
+                                        D2D1::Point2F(cx + sw * 0.20f, bottom - sh * 0.10f),
+                                        D2D1::Point2F(cx, bottom)));
+    sink->AddBezier(D2D1::BezierSegment(D2D1::Point2F(cx - sw * 0.20f, bottom - sh * 0.10f),
+                                        D2D1::Point2F(cx - half, top + sh * 0.80f),
+                                        D2D1::Point2F(cx - half, top + sh * 0.52f)));
+    sink->AddLine(D2D1::Point2F(cx - half, top + sh * 0.14f));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    if (FAILED(sink->Close()))
+        return;
+
+    r->brush->SetColor(ColorOf(body));
+    r->Target()->FillGeometry(path.Get(), r->brush.Get());
+
+    // The tick.
+    const float stroke = std::fmax(1.2f, height / 11.0f);
+    r->brush->SetColor(ColorOf(mark));
+    const D2D1_POINT_2F a = D2D1::Point2F(cx - sw * 0.24f, top + sh * 0.44f);
+    const D2D1_POINT_2F b = D2D1::Point2F(cx - sw * 0.04f, top + sh * 0.62f);
+    const D2D1_POINT_2F c = D2D1::Point2F(cx + sw * 0.26f, top + sh * 0.28f);
+    r->Target()->DrawLine(a, b, r->brush.Get(), stroke);
+    r->Target()->DrawLine(b, c, r->brush.Get(), stroke);
+}
+
 void pe_render_cell_size(const pe_renderer *r, int32_t *width_px, int32_t *height_px)
 {
     if (width_px)
