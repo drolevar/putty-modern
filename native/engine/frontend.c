@@ -36,6 +36,47 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID reserved)
     return TRUE;
 }
 
+/* ----- The engine's trace ------------------------------------------------------------------ */
+
+static struct {
+    pe_log_fn handler;
+    void *user;
+    int32_t max_level;
+} log_sink;
+
+void pe_log_reset(void)
+{
+    memset(&log_sink, 0, sizeof(log_sink));
+}
+
+PE_API int32_t pe_set_log_handler(pe_log_fn handler, void *user, int32_t max_level)
+{
+    int32_t rc = pe_check_engine_thread();
+    if (rc != PE_OK)
+        return rc;
+    log_sink.handler = handler;
+    log_sink.user = user;
+    log_sink.max_level = max_level;
+    return PE_OK;
+}
+
+bool pe_log_enabled(int level)
+{
+    return log_sink.handler && level <= log_sink.max_level;
+}
+
+void pe_log(int level, const char *fmt, ...)
+{
+    if (!pe_log_enabled(level))
+        return;
+    va_list ap;
+    va_start(ap, fmt);
+    char *msg = dupvprintf(fmt, ap);
+    va_end(ap);
+    log_sink.handler(log_sink.user, level, msg);
+    sfree(msg);
+}
+
 static void debug_message(const char *kind, const char *message)
 {
     OutputDebugStringA("PuTTY engine ");
@@ -43,6 +84,14 @@ static void debug_message(const char *kind, const char *message)
     OutputDebugStringA(": ");
     OutputDebugStringA(message);
     OutputDebugStringA("\n");
+}
+
+/* A fatal error or a warning: to the debugger as before, and to the host's trace when it is listening. */
+static void trace_message(int level, const char *kind, const char *message)
+{
+    debug_message(kind, message);
+    if (log_sink.handler && level <= log_sink.max_level)
+        log_sink.handler(log_sink.user, level, message);
 }
 
 /* ----- Fatal errors ------------------------------------------------------------------------ */
@@ -119,7 +168,7 @@ NORETURN void modalfatalbox(const char *fmt, ...)
     va_end(ap);
 
     fprintf(stderr, "PuTTY engine fatal error: %s\n", msg);
-    debug_message("fatal error", msg);
+    trace_message(PE_LOG_ERROR, "fatal error", msg);
     signal(SIGABRT, SIG_DFL);       /* the abort below is not news after this */
     if (report_fatal(msg))
         TerminateProcess(GetCurrentProcess(), 3);
@@ -183,7 +232,7 @@ PE_API int32_t pe_set_warning_handler(pe_warning_fn handler, void *user)
 
 static void raise_warning(int32_t kind, const char *message)
 {
-    debug_message("warning", message);
+    trace_message(PE_LOG_WARN, "warning", message);
     if (warning_sink.handler)
         warning_sink.handler(warning_sink.user, kind, message);
 }

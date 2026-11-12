@@ -36,7 +36,7 @@ public static unsafe class InstalledFonts
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"InstalledFonts callback threw: {ex}");
+            PuttyLog.Error("interop", $"InstalledFonts callback threw: {ex}");
         }
     }
 }

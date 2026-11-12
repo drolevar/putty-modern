@@ -64,7 +64,7 @@ public static unsafe class PuttySessions
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySessions.List callback threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySessions.List callback threw: {ex}");
         }
     }
 }

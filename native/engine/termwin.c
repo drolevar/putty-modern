@@ -561,6 +561,15 @@ static void tw_palette_set(TermWin *tw, unsigned start, unsigned ncolours, const
     pe_termwin *w = TW(tw);
     for (unsigned i = 0; i < ncolours && start + i < OSC4_NCOLOURS; i++)
         w->colours[start + i] = pack_rgb(&colours[i]);
+    if (pe_log_enabled(PE_LOG_DEBUG)) {
+        pe_log(PE_LOG_DEBUG, "palette: %u colours set from index %u (default fg #%06x, default bg #%06x, cursor #%06x, bold-as-colour %s)",
+               ncolours, start, (unsigned)w->colours[256], (unsigned)w->colours[258], (unsigned)w->colours[261],
+               w->bold_colours ? "on" : "off");
+        if (pe_log_enabled(PE_LOG_TRACE)) {
+            for (unsigned i = 0; i < ncolours && start + i < OSC4_NCOLOURS; i++)
+                pe_log(PE_LOG_TRACE, "palette[%u] = #%06x", start + i, (unsigned)w->colours[start + i]);
+        }
+    }
 }
 
 static void tw_palette_get_overrides(TermWin *tw, Terminal *term)

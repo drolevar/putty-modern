@@ -38,6 +38,11 @@ void pe_sessions_close_all(void);
 
 /* Drops the warning handler. Called by pe_shutdown. */
 void pe_warnings_reset(void);
+void pe_log_reset(void);            /* frontend.c: drops the host's log handler (pe_shutdown) */
+
+/* The engine's trace (frontend.c). Cheap when the host is not logging: nothing is formatted. Engine thread only. */
+bool pe_log_enabled(int level);
+void pe_log(int level, const char *fmt, ...);
 void pe_fatal_reset(void);          /* frontend.c: drops the host's fatal handler (pe_shutdown) */
 void pe_fatal_install(void);        /* frontend.c: the SIGABRT handler and the C runtime's abort behaviour (pe_init) */
 

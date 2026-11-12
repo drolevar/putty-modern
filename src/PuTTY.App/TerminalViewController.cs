@@ -250,7 +250,7 @@ internal sealed class TerminalViewController : IDisposable
         }
         catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
         {
-            System.Diagnostics.Debug.WriteLine($"Typed text could not be sent: {ex.Message}");      // the session ended under the IME
+            PuttyLog.Warning("app", $"Typed text could not be sent: {ex.Message}");      // the session ended under the IME
         }
     }
 
@@ -651,7 +651,7 @@ internal sealed class TerminalViewController : IDisposable
         catch (Exception ex)
         {
             // another process may hold the clipboard open; a lost copy must not take the terminal down
-            System.Diagnostics.Debug.WriteLine($"Clipboard write failed: {ex.Message}");
+            PuttyLog.Warning("app", $"Clipboard write failed: {ex.Message}");
         }
     }
 
@@ -675,7 +675,7 @@ internal sealed class TerminalViewController : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Clipboard paste failed: {ex.Message}");
+            PuttyLog.Warning("app", $"Clipboard paste failed: {ex.Message}");
         }
     }
 

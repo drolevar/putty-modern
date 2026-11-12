@@ -540,6 +540,7 @@ static void session_unlink(pe_session *session)
 /* Frees the session for real. Never call this from inside one of its own callbacks. */
 static void session_destroy(pe_session *s)
 {
+    pe_log(PE_LOG_INFO, "session #%llu: closed", (unsigned long long)s->serial);
     session_unlink(s);
     interaction_clear(s);       /* a question nobody answered: the backend owns what it points to */
     pe_keys_session_closing(&s->keys);
@@ -598,6 +599,41 @@ static void apply_options(Conf *conf, const pe_session_options *options)
         conf_set_bool(conf, CONF_tryagent, options->try_agent != 0);
 }
 
+static const char *protocol_name(int putty_protocol)
+{
+    switch (putty_protocol) {
+      case PROT_RAW:    return "raw";
+      case PROT_TELNET: return "telnet";
+      case PROT_RLOGIN: return "rlogin";
+      case PROT_SSH:    return "ssh";
+      case PROT_SERIAL: return "serial";
+      case PROT_SUPDUP: return "supdup";
+    }
+    return "other";
+}
+
+/* What a session is going to connect to, for the trace: host and port, or the serial line with its settings. */
+static void log_session_target(uint64_t serial, Conf *conf, const char *host, int port)
+{
+    if (!pe_log_enabled(PE_LOG_INFO))
+        return;
+    int proto = conf_get_int(conf, CONF_protocol);
+    if (proto == PROT_SERIAL) {
+        static const char parity[] = "noems";       /* SER_PAR_NONE, ODD, EVEN, MARK, SPACE */
+        static const char *const flow[] = { "none", "XON/XOFF", "RTS/CTS", "DSR/DTR" };
+        int p = conf_get_int(conf, CONF_serparity);
+        int f = conf_get_int(conf, CONF_serflow);
+        pe_log(PE_LOG_INFO, "session #%llu: serial line '%s', %d baud, %d data bits, %s stop bits, parity %c, flow control %s",
+               (unsigned long long)serial, conf_get_str(conf, CONF_serline), conf_get_int(conf, CONF_serspeed),
+               conf_get_int(conf, CONF_serdatabits),
+               conf_get_int(conf, CONF_serstopbits) == 2 ? "1" : conf_get_int(conf, CONF_serstopbits) == 3 ? "1.5" : "2",
+               p >= 0 && p < 5 ? parity[p] : '?', f >= 0 && f < 4 ? flow[f] : "?");
+    } else {
+        pe_log(PE_LOG_INFO, "session #%llu: %s to %s port %d", (unsigned long long)serial, protocol_name(proto),
+               host ? host : "", port);
+    }
+}
+
 /*
  * Starts the connection for a session whose settings are ready. Takes ownership of `conf`, also
  * when it fails.
@@ -616,6 +652,7 @@ static int32_t session_start(Conf *conf, const char *host, int port, const Backe
     s->conf = conf;
 
     s->logctx = log_init(&s->logpolicy, s->conf);
+    log_session_target(s->serial, s->conf, host, port);
 
     /* Linked in before the backend starts: it may call back before backend_init returns. */
     s->next = live_sessions;
@@ -625,6 +662,7 @@ static int32_t session_start(Conf *conf, const char *host, int port, const Backe
                                &s->realhost, conf_get_bool(s->conf, CONF_tcp_nodelay),
                                conf_get_bool(s->conf, CONF_tcp_keepalives));
     if (message) {
+        pe_log(PE_LOG_ERROR, "session #%llu: the backend would not start: %s", (unsigned long long)s->serial, message);
         HOST_EVENT(s, error, message, 1);
         sfree(message);
         s->backend = NULL;          /* backend_init leaves nothing to free on failure */
@@ -650,8 +688,10 @@ PE_API int32_t pe_session_open_ex(const char *host, int32_t port, int32_t protoc
     if (putty_protocol < 0)
         return PE_ERR_FAILED;
     const BackendVtable *vt = backend_vt_from_proto(putty_protocol);
-    if (!vt)
+    if (!vt) {
+        pe_log(PE_LOG_WARN, "open: protocol %d is not built into the engine", (int)putty_protocol);
         return PE_ERR_FAILED;   /* this protocol is not built into the engine */
+    }
 
     /*
      * Built-in defaults, unless the caller asks for the user's own "Default Settings" (what PuTTY
@@ -681,12 +721,14 @@ PE_API int32_t pe_session_open_saved(const char *name, const pe_session_options 
 
     Conf *conf = conf_new();
     if (!load_settings(name, conf)) {       /* it fills in defaults even then, but there is no such session */
+        pe_log(PE_LOG_WARN, "open saved session: there is no saved session called '%s'", name);
         conf_free(conf);
         return PE_ERR_FAILED;
     }
     int putty_protocol = conf_get_int(conf, CONF_protocol);
     const BackendVtable *vt = backend_vt_from_proto(putty_protocol);
     if (!vt) {
+        pe_log(PE_LOG_WARN, "open saved session '%s': protocol %d is not built into the engine", name, putty_protocol);
         conf_free(conf);
         return PE_ERR_FAILED;
     }
@@ -729,8 +771,10 @@ int32_t pe_session_open_conf(Conf *conf, const pe_session_events *events, void *
         return rc;
     if (!conf || !events || !out_session)
         return PE_ERR_FAILED;
-    if (!conf_launchable(conf))
+    if (!conf_launchable(conf)) {
+        pe_log(PE_LOG_WARN, "open from settings: no host name or serial line to connect to");
         return PE_ERR_FAILED;               /* no host name (or serial line) to connect to */
+    }
     const BackendVtable *vt = backend_vt_from_proto(conf_get_int(conf, CONF_protocol));
     if (!vt)
         return PE_ERR_FAILED;
@@ -1181,6 +1225,8 @@ static void apply_view_geometry(pe_session *s)
     int rows = ch > 0 ? s->view_height / ch : 1;
     if (cols < 1) cols = 1;
     if (rows < 1) rows = 1;
+    pe_log(PE_LOG_DEBUG, "session #%llu: terminal fitted to %d x %d cells (view %d x %d px, cell %d x %d px)",
+           (unsigned long long)s->serial, cols, rows, (int)s->view_width, (int)s->view_height, (int)cw, (int)ch);
     term_size(s->term, rows, cols, conf_get_int(s->conf, CONF_savelines));
     if (s->backend)
         backend_size(s->backend, cols, rows);
@@ -1191,9 +1237,13 @@ static void apply_view_geometry(pe_session *s)
 static int32_t attach_view(pe_session *s, pe_renderer *r, const wchar_t *font, float size_px,
                            int32_t width_px, int32_t height_px)
 {
-    if (!r)
+    if (!r) {
+        pe_log(PE_LOG_ERROR, "session #%llu: the renderer could not be created (Direct2D or the swap chain failed)",
+               (unsigned long long)s->serial);
         return PE_ERR_FAILED;
+    }
     if (!pe_render_set_font(r, font, size_px)) {
+        pe_log(PE_LOG_ERROR, "session #%llu: the renderer could not use the font %ls", (unsigned long long)s->serial, font);
         pe_render_destroy(r);
         return PE_ERR_FAILED;
     }
@@ -1208,6 +1258,8 @@ static int32_t attach_view(pe_session *s, pe_renderer *r, const wchar_t *font, f
     s->view_width = width_px;
     s->view_height = height_px;
     pe_termwin_set_renderer(&s->termwin, r);
+    pe_log(PE_LOG_INFO, "session #%llu: view attached, %d x %d px, font %ls at %.1f px",
+           (unsigned long long)s->serial, (int)width_px, (int)height_px, font, (double)size_px);
     apply_view_geometry(s);
     return PE_OK;
 }
@@ -1263,8 +1315,11 @@ PE_API int32_t pe_session_set_font(pe_session *s, const wchar_t *font_family, fl
         return rc;
     if (!view_usable(s) || !font_family)
         return PE_ERR_STATE;
-    if (!pe_render_set_font(s->termwin.renderer, font_family, size_px))
+    if (!pe_render_set_font(s->termwin.renderer, font_family, size_px)) {
+        pe_log(PE_LOG_ERROR, "session #%llu: the renderer could not use the font %ls", (unsigned long long)s->serial, font_family);
         return PE_ERR_FAILED;
+    }
+    pe_log(PE_LOG_INFO, "session #%llu: font %ls at %.1f px", (unsigned long long)s->serial, font_family, (double)size_px);
     apply_view_geometry(s);
     return PE_OK;
 }
@@ -1554,6 +1609,7 @@ static void deferred_destroy(void *ctx)
  */
 static void session_disconnect_now(pe_session *s)
 {
+    pe_log(PE_LOG_INFO, "session #%llu: disconnecting (the session stays)", (unsigned long long)s->serial);
     if (!s->backend)
         return;
     interaction_clear(s);           /* a question still open belongs to the backend that is going */

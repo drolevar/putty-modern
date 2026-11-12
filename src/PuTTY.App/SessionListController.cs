@@ -253,7 +253,7 @@ internal sealed class SessionListController
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            System.Diagnostics.Debug.WriteLine($"Could not remember that {name} was opened: {ex.Message}");
+            PuttyLog.Warning("app", $"Could not remember that {name} was opened: {ex.Message}");
         }
 
         RebuildRecent();
@@ -692,7 +692,7 @@ internal sealed class SessionListController
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Dialog failed: {ex.Message}");      // another dialog is open
+            PuttyLog.Warning("app", $"Dialog failed: {ex.Message}");      // another dialog is open
             metadata = store.Load();
             RebuildRows(selectFirst: false);
             return;
@@ -724,7 +724,7 @@ internal sealed class SessionListController
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Dialog failed: {ex.Message}");
+            PuttyLog.Warning("app", $"Dialog failed: {ex.Message}");
         }
     }
 

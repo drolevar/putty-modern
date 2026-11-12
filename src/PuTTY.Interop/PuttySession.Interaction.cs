@@ -330,7 +330,7 @@ public sealed unsafe partial class PuttySession
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.PromptRequested handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.PromptRequested handler threw: {ex}");
             try
             {
                 args?.Cancel();
@@ -376,7 +376,7 @@ public sealed unsafe partial class PuttySession
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.ConfirmationRequested handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.ConfirmationRequested handler threw: {ex}");
             try
             {
                 args?.Cancel();

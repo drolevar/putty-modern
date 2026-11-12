@@ -90,7 +90,7 @@ internal sealed class SessionInteraction : IDisposable
         catch (Exception ex)
         {
             // for instance another dialog got in first: treat it as a refusal, never as a crash
-            System.Diagnostics.Debug.WriteLine($"Dialog failed: {ex.Message}");
+            PuttyLog.Warning("app", $"Dialog failed: {ex.Message}");
             return ContentDialogResult.None;
         }
         finally
@@ -319,7 +319,7 @@ internal sealed class SessionInteraction : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Dialog failed: {ex.Message}");
+            PuttyLog.Warning("app", $"Dialog failed: {ex.Message}");
         }
     }
 

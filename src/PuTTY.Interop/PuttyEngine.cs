@@ -73,6 +73,32 @@ public static class PuttyEngine
         Check(NativeMethods.Init(), nameof(Initialize));
         RegisterWarningHandler();
         RegisterFatalHandler();
+        RegisterLogHandler();
+        PuttyLog.Info("engine", $"engine started, ABI {NativeAbiVersion}");
+    }
+
+    /// <summary>
+    /// Sends the engine's own trace (native code: sessions opened and closed, the serial line's settings, views, the palette)
+    /// to <see cref="PuttyLog"/> at the level it is set to now. Called by <see cref="Initialize"/>; call it again after
+    /// <see cref="PuttyLog.Configure"/> if the log was switched on later. Does nothing while the log is off.
+    /// </summary>
+    public static unsafe void RegisterLogHandler()
+    {
+        int maxLevel = (int)PuttyLog.Level;
+        Check(NativeMethods.SetLogHandler(maxLevel == 0 ? null : &OnLog, 0, maxLevel), nameof(RegisterLogHandler));
+    }
+
+    [UnmanagedCallersOnly]
+    private static unsafe void OnLog(nint user, int level, byte* message)
+    {
+        try
+        {
+            PuttyLog.Write((PuttyLogLevel)Math.Clamp(level, 1, 5), "engine", Marshal.PtrToStringUTF8((nint)message) ?? string.Empty);
+        }
+        catch (Exception)
+        {
+            // An exception must never cross back into the engine, and the log is not worth reporting.
+        }
     }
 
     /// <summary>
@@ -92,12 +118,13 @@ public static class PuttyEngine
         try
         {
             string text = Marshal.PtrToStringUTF8((nint)message) ?? string.Empty;
+            PuttyLog.Error("engine", $"fatal error, the process is about to end: {text}");
             Fatal?.Invoke(null, new EngineFatalEventArgs(text));
         }
         catch (Exception ex)
         {
             // An exception must never cross back into the engine; and nothing more can be done about this one.
-            Debug.WriteLine($"PuttyEngine.Fatal handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttyEngine.Fatal handler threw: {ex}");
         }
     }
 
@@ -117,17 +144,22 @@ public static class PuttyEngine
         try
         {
             string text = Marshal.PtrToStringUTF8((nint)message) ?? string.Empty;
+            PuttyLog.Warning("engine", $"warning ({(EngineWarningKind)kind}): {text}");
             Warning?.Invoke(null, new EngineWarningEventArgs((EngineWarningKind)kind, text));
         }
         catch (Exception ex)
         {
             // An exception must never cross back into the engine.
-            Debug.WriteLine($"PuttyEngine.Warning handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttyEngine.Warning handler threw: {ex}");
         }
     }
 
     /// <summary>Closes every socket, drains pending work and stops the engine.</summary>
-    public static void Shutdown() => Check(NativeMethods.Shutdown(), nameof(Shutdown));
+    public static void Shutdown()
+    {
+        PuttyLog.Info("engine", "engine stopping");
+        Check(NativeMethods.Shutdown(), nameof(Shutdown));
+    }
 
     /// <summary>
     /// Waits up to <paramref name="timeout"/> for window messages and dispatches whatever is

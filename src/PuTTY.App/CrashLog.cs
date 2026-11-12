@@ -1,3 +1,4 @@
+using PuTTY.Interop;
 using System.Globalization;
 using System.Text;
 
@@ -22,6 +23,7 @@ internal static class CrashLog
 
     internal static void Write(string source, Exception? exception, string? message)
     {
+        PuttyLog.Error("crash", $"{source}: {message} {exception}");
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);

@@ -211,6 +211,9 @@ internal static partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "pe_set_warning_handler")]
     internal static unsafe partial int SetWarningHandler(delegate* unmanaged<nint, int, byte*, void> handler, nint user);
 
+    [LibraryImport(Library, EntryPoint = "pe_set_log_handler")]
+    internal static unsafe partial int SetLogHandler(delegate* unmanaged<nint, int, byte*, void> handler, nint user, int maxLevel);
+
     [LibraryImport(Library, EntryPoint = "pe_set_fatal_handler")]
     internal static unsafe partial int SetFatalHandler(delegate* unmanaged<nint, byte*, void> handler, nint user);
 

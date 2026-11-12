@@ -453,7 +453,7 @@ public sealed unsafe class SettingsDialog : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"SettingsDialog group callback threw: {ex}");
+            PuttyLog.Error("interop", $"SettingsDialog group callback threw: {ex}");
         }
     }
 
@@ -507,7 +507,7 @@ public sealed unsafe class SettingsDialog : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"SettingsDialog control callback threw: {ex}");
+            PuttyLog.Error("interop", $"SettingsDialog control callback threw: {ex}");
         }
     }
 
@@ -556,7 +556,7 @@ public sealed unsafe class SettingsDialog : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"SettingsDialog handler threw: {ex}");
+            PuttyLog.Error("interop", $"SettingsDialog handler threw: {ex}");
         }
     }
 }

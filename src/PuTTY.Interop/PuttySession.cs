@@ -165,6 +165,13 @@ public sealed unsafe partial class PuttySession : IDisposable
     private readonly string? savedName;     // set for a session opened from PuTTY's storage
     private readonly NativeOpener? opener;  // set for a session whose settings come from somewhere else (the settings dialog)
 
+    private static int lastId;
+    private readonly int id = Interlocked.Increment(ref lastId);
+
+    /// <summary>Names this session in <see cref="PuttyLog"/> lines: a number that is never reused, and where it goes.</summary>
+    private string LogName => savedName is not null ? $"session {id} \"{savedName}\""
+        : opener is not null ? $"session {id} ({host})" : $"session {id} ({protocol} {host}:{port})";
+
     private nint handle;
 
     /// <summary>The engine's handle, for the settings dialog opened on this session. Throws once the session is disposed.</summary>
@@ -302,6 +309,7 @@ public sealed unsafe partial class PuttySession : IDisposable
 
         started = true;
         self = GCHandle.Alloc(this);
+        PuttyLog.Info("session", $"{LogName}: starting");
 
         NativeSessionEvents events = default;
         events.Output = &OnOutput;
@@ -341,6 +349,7 @@ public sealed unsafe partial class PuttySession : IDisposable
             self.Free();
             disposed = true;
             string detail = LastError is { } message ? $" ({message})" : string.Empty;
+            PuttyLog.Error("session", $"{LogName}: could not be opened, result {result}{detail}");
             throw new InvalidOperationException(opener is not null
                 ? $"Could not open a session from {host}{detail}. Does it name a host?"
                 : savedName is not null
@@ -625,6 +634,7 @@ public sealed unsafe partial class PuttySession : IDisposable
             return;
         }
 
+        PuttyLog.Info("session", $"{LogName}: disposed");
         int result = NativeMethods.SessionClose(handle);
         handle = 0;
         if (self.IsAllocated)
@@ -655,13 +665,18 @@ public sealed unsafe partial class PuttySession : IDisposable
         {
             if (From(user) is { } session)
             {
+                if (PuttyLog.IsEnabled(PuttyLogLevel.Trace))
+                {
+                    PuttyLog.Trace("session", $"{session.LogName}: {length} bytes of {(isStderr != 0 ? "error " : string.Empty)}output");
+                }
+
                 byte[] copy = new ReadOnlySpan<byte>(data, (int)length).ToArray();
                 session.Output?.Invoke(session, new SessionOutputEventArgs(copy, isStderr != 0));
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.Output handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.Output handler threw: {ex}");
         }
     }
 
@@ -673,12 +688,17 @@ public sealed unsafe partial class PuttySession : IDisposable
             if (From(user) is { } session)
             {
                 string line = Marshal.PtrToStringUTF8((nint)text) ?? string.Empty;
+                if (PuttyLog.IsEnabled(PuttyLogLevel.Debug))
+                {
+                    PuttyLog.Detail("session", $"{session.LogName}: PuTTY says: {line}");
+                }
+
                 session.Log?.Invoke(session, new SessionLogEventArgs(line));
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.Log handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.Log handler threw: {ex}");
         }
     }
 
@@ -691,12 +711,14 @@ public sealed unsafe partial class PuttySession : IDisposable
             {
                 string text = Marshal.PtrToStringUTF8((nint)message) ?? string.Empty;
                 session.LastError = text;
+                PuttyLog.Write(isFatal != 0 ? PuttyLogLevel.Error : PuttyLogLevel.Warning, "session",
+                    $"{session.LogName}: {(isFatal != 0 ? "fatal error" : "error")}: {text}");
                 session.Error?.Invoke(session, new SessionErrorEventArgs(text, isFatal != 0));
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.Error handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.Error handler threw: {ex}");
         }
     }
 
@@ -713,7 +735,7 @@ public sealed unsafe partial class PuttySession : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.TitleChanged handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.TitleChanged handler threw: {ex}");
         }
     }
 
@@ -729,7 +751,7 @@ public sealed unsafe partial class PuttySession : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.ClipboardWrite handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.ClipboardWrite handler threw: {ex}");
         }
     }
 
@@ -745,7 +767,7 @@ public sealed unsafe partial class PuttySession : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.ClipboardPasteRequested handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.ClipboardPasteRequested handler threw: {ex}");
         }
     }
 
@@ -761,7 +783,7 @@ public sealed unsafe partial class PuttySession : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.Bell handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.Bell handler threw: {ex}");
         }
     }
 
@@ -777,7 +799,7 @@ public sealed unsafe partial class PuttySession : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.ScrollbarChanged handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.ScrollbarChanged handler threw: {ex}");
         }
     }
 
@@ -793,7 +815,7 @@ public sealed unsafe partial class PuttySession : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.CursorMoved handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.CursorMoved handler threw: {ex}");
         }
     }
 
@@ -804,12 +826,13 @@ public sealed unsafe partial class PuttySession : IDisposable
         {
             if (From(user) is { } session)
             {
+                PuttyLog.Info("session", $"{session.LogName}: the connection ended");
                 session.Closed?.Invoke(session, EventArgs.Empty);
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PuttySession.Closed handler threw: {ex}");
+            PuttyLog.Error("interop", $"PuttySession.Closed handler threw: {ex}");
         }
     }
 }

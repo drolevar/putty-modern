@@ -341,7 +341,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ObjectDisposedException)
         {
-            System.Diagnostics.Debug.WriteLine($"The workspace could not be saved: {ex.Message}");      // not worth stopping the window from closing
+            PuttyLog.Warning("app", $"The workspace could not be saved: {ex.Message}");      // not worth stopping the window from closing
         }
     }
 
@@ -380,7 +380,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            System.Diagnostics.Debug.WriteLine($"The saved layout could not be used: {ex.Message}");
+            PuttyLog.Warning("app", $"The saved layout could not be used: {ex.Message}");
             foreach (SessionTab tab in created)
             {
                 tabs.Remove(tab);

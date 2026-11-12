@@ -14,6 +14,7 @@ public partial class App : Application
 
     public App()
     {
+        StartLog();
         TestRegistry.ApplyFromEnvironment();
         InitializeComponent();
         AotTypeAnchors.Touch();
@@ -26,6 +27,21 @@ public partial class App : Application
         Window = new MainWindow();
         Window.Activate();
         TestRegistry.ScheduleFatalFromEnvironment(Window.DispatcherQueue);
+    }
+
+    /// <summary>
+    /// The diagnostic log is off unless asked for: <c>PUTTYMODERN_LOG=debug</c> (or <c>error</c>, <c>warning</c>,
+    /// <c>info</c>, <c>trace</c>) or <c>--log[=level]</c> on the command line, and <c>PUTTYMODERN_LOG_FILE</c> or
+    /// <c>--log-file=path</c> for the file (default: a new one in <c>%LOCALAPPDATA%\PuTTY Modern\logs</c>).
+    /// </summary>
+    private static void StartLog()
+    {
+        string[] arguments = Environment.GetCommandLineArgs();
+        PuttyLogLevel level = PuttyLog.TryParseSwitch(arguments, out string? file);
+        if (level != PuttyLogLevel.Off && PuttyLog.Configure(level, file))
+        {
+            PuttyLog.Info("app", $"started: {Environment.ProcessPath}, arguments: {string.Join(' ', arguments.Skip(1))}");
+        }
     }
 
     // The engine lives on the thread that starts it and needs that thread's message loop: the UI
@@ -41,7 +57,7 @@ public partial class App : Application
         }
         catch (Exception ex) when (ex is DllNotFoundException or InvalidOperationException)
         {
-            System.Diagnostics.Debug.WriteLine($"PuTTY engine not started: {ex.Message}");
+            PuttyLog.Warning("app", $"PuTTY engine not started: {ex.Message}");
         }
     }
 

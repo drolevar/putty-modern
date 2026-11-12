@@ -439,6 +439,22 @@ typedef void (*pe_warning_fn)(void *user, int32_t kind, const char *message);
 PE_API int32_t pe_set_warning_handler(pe_warning_fn handler, void *user);
 
 /*
+ * The engine's own trace: what it is doing and why it refused something (opening a session, closing it, attaching a
+ * view, the serial line's settings). Called on the engine thread, with UTF-8 text valid only during the call. Only
+ * messages up to `max_level` are formatted and passed on, so a host that is not logging pays for a comparison.
+ * Messages also go to the debugger (OutputDebugString) while a handler is set. Dropped by pe_shutdown().
+ */
+#define PE_LOG_ERROR 1
+#define PE_LOG_WARN  2
+#define PE_LOG_INFO  3
+#define PE_LOG_DEBUG 4
+#define PE_LOG_TRACE 5
+
+typedef void (*pe_log_fn)(void *user, int32_t level, const char *message);
+
+PE_API int32_t pe_set_log_handler(pe_log_fn handler, void *user, int32_t max_level);
+
+/*
  * Called on the thread that hit a fatal error, just before the process ends: PuTTY's modalfatalbox (out of memory and
  * the like), a failed assertion of its code, or any abort. UTF-8 text valid only during the call. The host may log, save
  * what it can keep and tell the user, and must not need the engine to be sound; the process ends when the handler returns.
