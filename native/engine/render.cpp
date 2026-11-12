@@ -20,6 +20,7 @@
 #include <initializer_list>
 #include <new>
 
+#include "boxdraw.h"
 #include "putty_engine.h"
 #include "render.h"
 
@@ -392,6 +393,12 @@ void pe_render_glyph(pe_renderer *r, int32_t col, int32_t row, const wchar_t *te
                      int32_t cells, uint32_t fg, uint32_t style)
 {
     if (!r || !text || units < 1 || cells < 1 || !r->regular)
+        return;
+    // Line drawing and block characters are built from rectangles that reach the cell's edges (boxdraw.h): a font's own
+    // glyphs leave a one-pixel gap between rows or columns with some fonts and sizes.
+    if (units == 1 && cells == 1 &&
+        boxdraw::Draw(r->Target(), r->brush.Get(), static_cast<int>(col * r->cellW), static_cast<int>(row * r->cellH),
+                      static_cast<int>(r->cellW), static_cast<int>(r->cellH), text[0], fg))
         return;
     r->brush->SetColor(ColorOf(fg));
     D2D1_RECT_F rect = D2D1::RectF(col * r->cellW, row * r->cellH, (col + cells) * r->cellW, (row + 1) * r->cellH);
