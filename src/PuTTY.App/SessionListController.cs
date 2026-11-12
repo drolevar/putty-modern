@@ -201,6 +201,9 @@ internal sealed class SessionListController
     /// <summary>The user asked to see and change the settings of the session with this name.</summary>
     public event Action<string>? EditRequested;
 
+    /// <summary>Asks for a name and makes a folder at the top (the command bar's New folder).</summary>
+    public void RequestNewFolder() => _ = AskNewFolderAsync(null);
+
     /// <summary>Reads the saved sessions and the folders again. Call it on the engine thread, with the engine running.</summary>
     public void Reload()
     {

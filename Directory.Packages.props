@@ -14,7 +14,7 @@
          Windows App SDK 2.6.5 pulls 1.7.251221100 transitively, which predates the fix, so
          this entry relies on CentralPackageTransitivePinningEnabled above. -->
     <PackageVersion Include="Microsoft.Windows.SDK.BuildTools.MSIX" Version="1.7.261102100" />
-    <PackageVersion Include="Digi21.WinUI.Docking" Version="1.6.0" />
+    <PackageVersion Include="Digi21.WinUI.Docking" Version="1.7.0-putty.1" />
   </ItemGroup>
 
   <ItemGroup Label="MVVM and hosting">

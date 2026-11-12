@@ -23,6 +23,10 @@ public sealed class WorkspaceState
     /// <summary>The sessions that were open, each named by the id of the document it was in.</summary>
     [JsonPropertyName("sessions")]
     public List<OpenSessionRecord> Sessions { get; set; } = [];
+
+    /// <summary>The name of the named layout last applied or saved (shown in the command bar), or null for the built-in Default.</summary>
+    [JsonPropertyName("layoutName")]
+    public string? LayoutName { get; set; }
 }
 
 /// <summary>One open session: where it was in the layout and how to open it again.</summary>

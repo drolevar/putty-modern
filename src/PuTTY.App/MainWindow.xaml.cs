@@ -18,6 +18,7 @@ public sealed partial class MainWindow : Window
     private readonly SessionDetailsController details;
     private readonly ConnectionLogController log;
     private readonly StatusBarController status;
+    private readonly CommandBarController commands;
     // One tab per open session. The welcome document (TerminalDocument, with the engine status) is closed when the first opens.
     private readonly List<SessionTab> tabs = [];
     private readonly Dictionary<DocumentWindow, SessionTab> tabOf = [];
@@ -47,6 +48,19 @@ public sealed partial class MainWindow : Window
         details.DisconnectRequested += Disconnect;
         log = new ConnectionLogController(LogHost);
         status = new StatusBarController(StatusBarHost);
+        commands = new CommandBarController(CommandBarHost);
+        commands.NewSessionRequested += () => OpenSettings(null);
+        commands.ReconnectRequested += Reconnect;
+        commands.DisconnectRequested += Disconnect;
+        commands.SettingsRequested += OpenChangeSettings;
+        commands.DuplicateRequested += Duplicate;
+        commands.NewFolderRequested += sessions.RequestNewFolder;
+        commands.AboutRequested += () => _ = ShowAboutAsync();
+        commands.ArrangementRequested += ApplyArrangement;
+        commands.SaveLayoutRequested += () => _ = SaveLayoutAsync();
+        commands.LayoutRequested += ApplyLayout;
+        commands.DeleteLayoutRequested += DeleteLayout;
+        StartLayouts();
         SessionsHost.Loaded += (_, _) =>
         {
             if (App.EngineRunning)
@@ -56,7 +70,11 @@ public sealed partial class MainWindow : Window
         };
 
         // The layout and the open sessions come back as they were; they are saved when the window closes.
-        DockSite.Loaded += (_, _) => RestoreWorkspace();
+        DockSite.Loaded += (_, _) =>
+        {
+            CaptureDefaultLayout();         // the panels as the markup has them, before the saved layout changes them
+            RestoreWorkspace();
+        };
         AppWindow.Closing += (_, _) => SaveWorkspace();
         DockSite.WindowActivated += (_, e) =>
         {
@@ -320,29 +338,41 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var state = new WorkspaceState { Layout = new DockSiteLayoutSerializer().SaveToString(DockSite) };
-            foreach (SessionTab tab in tabs)
+            var state = new WorkspaceState
             {
-                var record = new OpenSessionRecord { Id = tab.Document.SerializationId ?? string.Empty, Title = tab.Title, Description = tab.Description, SavedName = tab.SavedName };
-                if (record.SavedName is null)
-                {
-                    SessionEndpoint endpoint = tab.Session.GetEndpoint();      // opened from the settings window or typed: where it connects
-                    record.Host = endpoint.Host;
-                    record.Port = endpoint.Port;
-                    record.Protocol = ProtocolText(endpoint.Protocol);
-                    record.UserName = endpoint.UserName;
-                    record.KeyFile = endpoint.KeyFile;
-                }
-
-                state.Sessions.Add(record);
-            }
-
+                Layout = new DockSiteLayoutSerializer().SaveToString(DockSite),
+                LayoutName = string.Equals(currentLayout, LayoutNames.Default, StringComparison.OrdinalIgnoreCase) ? null : currentLayout,
+            };
+            state.Sessions.AddRange(OpenSessionRecords());
             workspaceStore.Save(state);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ObjectDisposedException)
         {
             PuttyLog.Warning("app", $"The workspace could not be saved: {ex.Message}");      // not worth stopping the window from closing
         }
+    }
+
+    /// <summary>One record per open tab: its document, its title and how to open it again (by saved name, or by where it connected).</summary>
+    private List<OpenSessionRecord> OpenSessionRecords()
+    {
+        var records = new List<OpenSessionRecord>();
+        foreach (SessionTab tab in tabs)
+        {
+            var record = new OpenSessionRecord { Id = tab.Document.SerializationId ?? string.Empty, Title = tab.Title, Description = tab.Description, SavedName = tab.SavedName };
+            if (record.SavedName is null)
+            {
+                SessionEndpoint endpoint = tab.Session.GetEndpoint();      // opened from the settings window or typed: where it connects
+                record.Host = endpoint.Host;
+                record.Port = endpoint.Port;
+                record.Protocol = ProtocolText(endpoint.Protocol);
+                record.UserName = endpoint.UserName;
+                record.KeyFile = endpoint.KeyFile;
+            }
+
+            records.Add(record);
+        }
+
+        return records;
     }
 
     /// <summary>
@@ -395,6 +425,12 @@ public sealed partial class MainWindow : Window
         {
             tab.Terminal.Show(tab.Session);
             tabCounter = Math.Max(tabCounter, NumberOf(tab.Document.SerializationId ?? string.Empty));
+        }
+
+        if (state.LayoutName is { } layoutName && layouts.Find(layoutName) is { } known)
+        {
+            currentLayout = known.Name;     // the layout in use at the last close
+            commands.SetLayouts(layouts.Names, currentLayout);
         }
 
         if (created.Count > 0)
@@ -496,9 +532,10 @@ public sealed partial class MainWindow : Window
         };
     }
 
-    /// <summary>The status bar: how many sessions are connected, and what the active one is.</summary>
+    /// <summary>The status bar, and the command bar's enabled buttons: how many sessions are connected, and what the active one is.</summary>
     private void UpdateStatus()
     {
+        commands.SetSession(hasSession: active is not null, connected: active is { Connected: true }, tabCount: tabs.Count);
         status.SetSessions(tabs.Count(t => t.Connected));
         if (active is { } tab)
         {

@@ -13,6 +13,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -26,7 +27,10 @@
         <!-- Same docking structure as the Figma sketch "PuTTY · Docked workspace":
              Sessions on the left, terminal documents in the centre with the
              Connection log below, Session details on the right. Placeholders only. -->
-        <docking:DockSite x:Name="DockSite" Grid.Row="1">
+        <!-- The session command bar of the sketch; built in code (CommandBarController). -->
+        <UserControl x:Name="CommandBarHost" Grid.Row="1" HorizontalContentAlignment="Stretch" />
+
+        <docking:DockSite x:Name="DockSite" Grid.Row="2">
             <docking:SplitContainer Orientation="Horizontal">
 
                 <docking:ToolWindowContainer docking:DockSite.RelativeSize="0.2">
@@ -78,6 +82,6 @@
         </docking:DockSite>
 
         <!-- Built in code (StatusBarController). -->
-        <UserControl x:Name="StatusBarHost" Grid.Row="2" HorizontalContentAlignment="Stretch" />
+        <UserControl x:Name="StatusBarHost" Grid.Row="3" HorizontalContentAlignment="Stretch" />
     </Grid>
 </Window>
