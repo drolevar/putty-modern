@@ -73,6 +73,19 @@ void pe_render_fill(pe_renderer *r, int32_t col, int32_t row, int32_t cells, uin
 void pe_render_glyph(pe_renderer *r, int32_t col, int32_t row, const wchar_t *text, int32_t units,
                      int32_t cells, uint32_t fg, uint32_t style);
 
+/*
+ * How a glyph is stretched on a double-width or double-height line (the emulator's LATTR_WIDE, LATTR_TOP, LATTR_BOT).
+ * The glyph is the one for `cells` cells of its own width; it is drawn twice as wide (WIDE), or twice as wide and twice
+ * as high with only the upper (TOP) or lower (BOTTOM) half kept, which is what the row it is drawn in shows.
+ */
+#define PE_STRETCH_WIDE   1
+#define PE_STRETCH_TOP    2
+#define PE_STRETCH_BOTTOM 3
+
+/* Like pe_render_glyph, `col` is the glyph's first cell on the screen, and `cells` the cells it would take unstretched. */
+void pe_render_glyph_stretched(pe_renderer *r, int32_t col, int32_t row, const wchar_t *text, int32_t units,
+                               int32_t cells, uint32_t fg, uint32_t style, int32_t stretch);
+
 void pe_render_underline(pe_renderer *r, int32_t col, int32_t row, int32_t cells, uint32_t rgb);
 
 /* A solid rectangle in pixels, for cursor shapes, strike-through and selection. */

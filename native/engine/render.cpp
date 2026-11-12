@@ -406,6 +406,37 @@ void pe_render_glyph(pe_renderer *r, int32_t col, int32_t row, const wchar_t *te
                           rect, r->brush.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP, DWRITE_MEASURING_MODE_NATURAL);
 }
 
+void pe_render_glyph_stretched(pe_renderer *r, int32_t col, int32_t row, const wchar_t *text, int32_t units,
+                               int32_t cells, uint32_t fg, uint32_t style, int32_t stretch)
+{
+    if (!r || !text || units < 1 || cells < 1 || !r->regular)
+        return;
+    const float x0 = col * r->cellW;
+    const float y0 = row * r->cellH;
+    // The row's own area on the screen: what is stretched beyond it belongs to the other row of a double-height pair.
+    const D2D1_RECT_F area = D2D1::RectF(x0, y0, x0 + 2 * cells * r->cellW, y0 + r->cellH);
+    float sy = 1.0f;
+    float originY = y0;
+    if (stretch == PE_STRETCH_TOP) {
+        sy = 2.0f;
+    } else if (stretch == PE_STRETCH_BOTTOM) {
+        sy = 2.0f;
+        originY = y0 - r->cellH;            // the doubled glyph starts one row up; this row shows its lower half
+    }
+
+    ID2D1RenderTarget *target = r->Target();
+    // The clip is set first, in unstretched space; the transform then makes the unstretched cell twice as wide (and,
+    // for double height, twice as high).
+    target->PushAxisAlignedClip(area, D2D1_ANTIALIAS_MODE_ALIASED);
+    target->SetTransform(D2D1::Matrix3x2F::Scale(D2D1::SizeF(2.0f, sy), D2D1::Point2F(x0, originY)));
+    r->brush->SetColor(ColorOf(fg));
+    const D2D1_RECT_F cell = D2D1::RectF(x0, originY, x0 + cells * r->cellW, originY + r->cellH);
+    target->DrawText(text, static_cast<UINT32>(units), (style & PE_STYLE_BOLD) ? r->bold.Get() : r->regular.Get(), cell,
+                     r->brush.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
+    target->SetTransform(D2D1::Matrix3x2F::Identity());
+    target->PopAxisAlignedClip();
+}
+
 void pe_render_underline(pe_renderer *r, int32_t col, int32_t row, int32_t cells, uint32_t rgb)
 {
     if (!r || cells < 1)

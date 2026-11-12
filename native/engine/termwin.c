@@ -11,10 +11,14 @@
  * With no renderer attached the TermWin still answers everything and draws nothing
  * (setup_draw_ctx returns false, so the emulator skips painting): that is a headless session.
  *
- * Not done yet: double-width and double-height lines are drawn at normal size over twice the
- * cells, clipboard and mouse mode are accepted and ignored (slice 2d), and
- * minimise/maximise/move/z-order requests are for the host, which is told only about the title,
- * the bell and the scrollbar.
+ * What the host is told: the title, the bell, the scrollbar, the cursor's cell, text to put on the clipboard and a request
+ * to paste. Deliberately not acted on, and not passed on: a server's requests to resize, minimise, maximise, move or
+ * raise the window (CSI t and friends; the host owns the size of the view and a tab is not a window, so a remote program
+ * has no say) and the icon title; the pointer-shape variant of mouse reporting (the host keeps its pointer). Not done:
+ * double-height characters in lines of line-drawing characters (those are drawn by the renderer at normal height).
+ *
+ * Double-width and double-height lines (DECDWL, DECDHL) are drawn stretched, the way PuTTY does it: the glyph twice as
+ * wide, and for double height twice as high with each of the two rows showing its half.
  */
 
 #include <string.h>
@@ -32,6 +36,15 @@
 static uint32_t pack_rgb(const rgb *c)
 {
     return ((uint32_t)c->r << 16) | ((uint32_t)c->g << 8) | (uint32_t)c->b;
+}
+
+static rgb rgb_from_colorref_local(COLORREF colour)
+{
+    rgb c;
+    c.r = GetRValue(colour);
+    c.g = GetGValue(colour);
+    c.b = GetBValue(colour);
+    return c;
 }
 
 static uint32_t pack_optional(const optionalrgb *c)
@@ -264,8 +277,15 @@ static void draw_text_run(pe_termwin *w, int x, int y, wchar_t *text, int len,
         int units = 1;
         if (i + 1 < len && IS_SURROGATE_PAIR(text[i], text[i + 1]))
             units = 2;
-        if (text[i] != L' ')
-            pe_render_glyph(r, col, y, &text[i], units, cells_per_char, fg, style);
+        if (text[i] != L' ') {
+            if (lattr == LATTR_NORM) {
+                pe_render_glyph(r, col, y, &text[i], units, cells_per_char, fg, style);
+            } else {
+                /* A double-width or double-height line: the glyph is stretched, not just spread over more cells. */
+                int stretch = lattr == LATTR_WIDE ? PE_STRETCH_WIDE : lattr == LATTR_TOP ? PE_STRETCH_TOP : PE_STRETCH_BOTTOM;
+                pe_render_glyph_stretched(r, col, y, &text[i], units, cells_per_char / 2, fg, style, stretch);
+            }
+        }
         if (!(attr & TATTR_COMBINING))
             shadow_put(w, col, y, units == 2 ? 0x10000 + (((uint32_t)text[i] - 0xD800) << 10) + ((uint32_t)text[i + 1] - 0xDC00) : (uint32_t)text[i], cells_per_char);
         col += cells_per_char;
@@ -578,8 +598,20 @@ static void tw_palette_set(TermWin *tw, unsigned start, unsigned ncolours, const
 
 static void tw_palette_get_overrides(TermWin *tw, Terminal *term)
 {
-    /* PuTTY's Windows front end offers the system colours here; we have no overrides. */
-    (void)tw; (void)term;
+    /* window.c's wintw_palette_get_overrides: "Use system colours" (Window > Colours) takes the foreground, background and
+     * cursor colours from Windows's own. */
+    pe_termwin *w = TW(tw);
+    if (!w->conf || !conf_get_bool(w->conf, CONF_system_colour))
+        return;
+    rgb c;
+    c = rgb_from_colorref_local(GetSysColor(COLOR_WINDOWTEXT));
+    term_palette_override(term, OSC4_COLOUR_fg, c);
+    term_palette_override(term, OSC4_COLOUR_fg_bold, c);
+    c = rgb_from_colorref_local(GetSysColor(COLOR_WINDOW));
+    term_palette_override(term, OSC4_COLOUR_bg, c);
+    term_palette_override(term, OSC4_COLOUR_bg_bold, c);
+    term_palette_override(term, OSC4_COLOUR_cursor_fg, rgb_from_colorref_local(GetSysColor(COLOR_HIGHLIGHTTEXT)));
+    term_palette_override(term, OSC4_COLOUR_cursor_bg, rgb_from_colorref_local(GetSysColor(COLOR_HIGHLIGHT)));
 }
 
 static void tw_unthrottle(TermWin *tw, size_t bufsize)
@@ -632,6 +664,7 @@ void pe_termwin_init(pe_termwin *w, void *owner)
 void pe_termwin_use_settings(pe_termwin *w, Terminal *term, Conf *conf)
 {
     w->term = term;
+    w->conf = conf;
     int bold_style = conf_get_int(conf, CONF_bold_style);
     w->bold_font = (bold_style & BOLD_STYLE_FONT) != 0;
     w->bold_colours = (bold_style & BOLD_STYLE_COLOUR) != 0;

@@ -12,48 +12,6 @@ namespace PuTTY.Interop.Tests;
 public sealed class BoxDrawingTests
 {
     private const uint Foreground = 0xBBBBBB;
-    private static readonly TimeSpan Generous = TimeSpan.FromSeconds(10);
-
-    private sealed class Screen : IDisposable
-    {
-        private readonly LoopbackServer server = new();
-        private readonly EngineThread engine = new();
-        private readonly PuttySession session;
-        public readonly int CellWidth;
-        public readonly int CellHeight;
-
-        public Screen(string font, float size, string text)
-        {
-            session = engine.Run(() =>
-            {
-                var s = new PuttySession("127.0.0.1", server.Port, SessionProtocol.Raw);
-                s.Start();
-                return s;
-            });
-            Assert.IsTrue(EngineThread.WaitUntil(() => server.ClientCount == 1, Generous), "never connected");
-            engine.Run(() =>
-            {
-                session.AttachOffscreenView(320, 240, font, size);
-                session.SetLocalEchoAndEditing(LocalMode.Off, LocalMode.Off);
-            });
-            TerminalGeometry g = engine.Run(() => session.Geometry);
-            CellWidth = g.CellWidth;
-            CellHeight = g.CellHeight;
-            server.Send(Encoding.UTF8.GetBytes(text + "\u0001"));       // a marker the screen text will not show
-            Assert.IsTrue(EngineThread.WaitUntil(() => engine.Run(() => session.GetScreenText()).Length >= text.Replace("\r\n", "\n").Length, Generous),
-                "the text never reached the screen");
-            Thread.Sleep(200);                                          // let the last repaint land
-        }
-
-        public uint Pixel(int x, int y) => engine.Run(() => session.ReadPixel(x, y));
-
-        public void Dispose()
-        {
-            engine.Run(session.Dispose);
-            engine.Dispose();
-            server.Dispose();
-        }
-    }
 
     public static IEnumerable<object[]> Fonts =>
     [
@@ -67,7 +25,7 @@ public sealed class BoxDrawingTests
     [DynamicData(nameof(Fonts))]
     public void A_column_of_vertical_bars_has_no_gap_at_the_row_boundaries(string font, float size)
     {
-        using var screen = new Screen(font, size, "│\r\n│\r\n│");
+        using var screen = new TextScreen(font, size, "│\r\n│\r\n│", "│");
         int rows = 3 * screen.CellHeight;
 
         bool continuous = false;
@@ -83,7 +41,7 @@ public sealed class BoxDrawingTests
     [DynamicData(nameof(Fonts))]
     public void A_row_of_horizontal_bars_has_no_gap_at_the_column_boundaries(string font, float size)
     {
-        using var screen = new Screen(font, size, "───");
+        using var screen = new TextScreen(font, size, "───", "─");
         int columns = 3 * screen.CellWidth;
 
         bool continuous = false;
@@ -102,7 +60,7 @@ public sealed class BoxDrawingTests
         // The frame of a dialog: corners, a double bar on each side and a double bar across. Every pixel row of the left
         // side, and every pixel column of the top side, must have ink, from corner to corner (a corner character starts at
         // the middle of its cell, so the first and last half cells are left out).
-        using var screen = new Screen(font, size, "╔═╗\r\n║ ║\r\n╚═╝");
+        using var screen = new TextScreen(font, size, "╔═╗\r\n║ ║\r\n╚═╝", "╝");
         int cw = screen.CellWidth, ch = screen.CellHeight;
 
         for (int y = ch / 2 + 2; y < 5 * ch / 2 - 2; y++)
@@ -125,7 +83,7 @@ public sealed class BoxDrawingTests
     [TestMethod]
     public void Block_elements_fill_exactly_the_part_of_the_cell_they_name()
     {
-        using var screen = new Screen("Consolas", 20f, "█▀▄▌▐░▒▓");
+        using var screen = new TextScreen("Consolas", 20f, "█▀▄▌▐░▒▓", "▓");
         int cw = screen.CellWidth, ch = screen.CellHeight;
 
         Assert.IsTrue(Cell(0, (x, y) => true), "the full block must fill the whole cell");

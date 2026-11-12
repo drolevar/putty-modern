@@ -94,6 +94,7 @@ typedef struct pe_termwin {
     TermWin tw;
     void *owner;
     Terminal *term;
+    Conf *conf;                     /* the session's settings (borrowed; the session never replaces its Conf), for palette_get_overrides */
     pe_renderer *renderer;          /* owned; NULL while headless */
     bool drawing;                   /* between setup_draw_ctx and free_draw_ctx */
     uint32_t colours[OSC4_NCOLOURS];    /* 0x00RRGGBB, indexed as the emulator's palette (OSC 4) */

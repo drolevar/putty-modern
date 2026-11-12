@@ -178,7 +178,94 @@ struct Canvas {
 
 inline bool IsHandled(wchar_t c)
 {
-    return c >= 0x2500 && c <= 0x259F;
+    return (c >= 0x2500 && c <= 0x259F) || (c >= 0xE0B0 && c <= 0xE0BF);
+}
+
+/*
+ * The Powerline separators U+E0B0..U+E0BF (private use, so a font either has them, drawn the way its designer liked and
+ * with the same one-pixel gaps, or has nothing and the cell shows a missing-glyph box). They are shapes that fill the cell
+ * and meet their neighbour's background, so they are drawn here, the way Windows Terminal does:
+ *   E0B0 / E0B2  solid triangle pointing right / left          E0B1 / E0B3  the same as a chevron (outline)
+ *   E0B4 / E0B6  solid half circle bulging right / left        E0B5 / E0B7  the same as an arc (outline)
+ *   E0B8 / E0BA / E0BC / E0BE  solid triangles in the lower left / lower right / upper left / upper right corner
+ *   E0B9 / E0BF  backslash                                      E0BB / E0BD  slash
+ * The other Powerline and Nerd Font symbols (the branch, the line number, the lock) are left to the font.
+ */
+inline void DrawPowerline(const Canvas &g, int x, int y, int cw, int ch, wchar_t c)
+{
+    ID2D1Factory *factory = nullptr;
+    g.target->GetFactory(&factory);
+    if (!factory)
+        return;
+    struct Release { ID2D1Factory *f; ~Release() { f->Release(); } } releaseFactory{ factory };   // GetFactory adds a reference
+    const float l = static_cast<float>(x), t = static_cast<float>(y);
+    const float r = static_cast<float>(x + cw), b = static_cast<float>(y + ch);
+    const float mid = t + ch / 2.0f;
+    const float stroke = std::fmax(1.0f, std::round(cw / 8.0f));
+    g.SetColor(1.0f);
+
+    auto line = [&](float x0, float y0, float x1, float y1) {
+        g.target->DrawLine(D2D1::Point2F(x0, y0), D2D1::Point2F(x1, y1), g.brush, stroke);
+    };
+    auto polygon = [&](const D2D1_POINT_2F *points, int n, bool filled) {
+        ID2D1PathGeometry *path = nullptr;
+        ID2D1GeometrySink *sink = nullptr;
+        if (FAILED(factory->CreatePathGeometry(&path)))
+            return;
+        if (SUCCEEDED(path->Open(&sink))) {
+            sink->BeginFigure(points[0], filled ? D2D1_FIGURE_BEGIN_FILLED : D2D1_FIGURE_BEGIN_HOLLOW);
+            for (int i = 1; i < n; i++)
+                sink->AddLine(points[i]);
+            sink->EndFigure(filled ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
+            sink->Close();
+            sink->Release();
+            if (filled)
+                g.target->FillGeometry(path, g.brush);
+            else
+                g.target->DrawGeometry(path, g.brush, stroke);
+        }
+        path->Release();
+    };
+    // A half ellipse as wide as the cell and as high: from the top to the bottom through the right (or the left) edge.
+    auto half = [&](bool right, bool filled) {
+        ID2D1PathGeometry *path = nullptr;
+        ID2D1GeometrySink *sink = nullptr;
+        if (FAILED(factory->CreatePathGeometry(&path)))
+            return;
+        if (SUCCEEDED(path->Open(&sink))) {
+            const float edge = right ? l : r;
+            sink->BeginFigure(D2D1::Point2F(edge, t), filled ? D2D1_FIGURE_BEGIN_FILLED : D2D1_FIGURE_BEGIN_HOLLOW);
+            sink->AddArc(D2D1::ArcSegment(D2D1::Point2F(edge, b), D2D1::SizeF(static_cast<float>(cw), ch / 2.0f), 0.0f,
+                                          right ? D2D1_SWEEP_DIRECTION_CLOCKWISE : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
+                                          D2D1_ARC_SIZE_SMALL));
+            sink->EndFigure(filled ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
+            sink->Close();
+            sink->Release();
+            if (filled)
+                g.target->FillGeometry(path, g.brush);
+            else
+                g.target->DrawGeometry(path, g.brush, stroke);
+        }
+        path->Release();
+    };
+
+    switch (c) {
+    case 0xE0B0: { const D2D1_POINT_2F p[] = { {l, t}, {r, mid}, {l, b} }; polygon(p, 3, true); break; }
+    case 0xE0B1: { const D2D1_POINT_2F p[] = { {l, t}, {r, mid}, {l, b} }; polygon(p, 3, false); break; }
+    case 0xE0B2: { const D2D1_POINT_2F p[] = { {r, t}, {l, mid}, {r, b} }; polygon(p, 3, true); break; }
+    case 0xE0B3: { const D2D1_POINT_2F p[] = { {r, t}, {l, mid}, {r, b} }; polygon(p, 3, false); break; }
+    case 0xE0B4: half(true, true); break;
+    case 0xE0B5: half(true, false); break;
+    case 0xE0B6: half(false, true); break;
+    case 0xE0B7: half(false, false); break;
+    case 0xE0B8: { const D2D1_POINT_2F p[] = { {l, t}, {l, b}, {r, b} }; polygon(p, 3, true); break; }
+    case 0xE0BA: { const D2D1_POINT_2F p[] = { {r, t}, {r, b}, {l, b} }; polygon(p, 3, true); break; }
+    case 0xE0BC: { const D2D1_POINT_2F p[] = { {l, t}, {r, t}, {l, b} }; polygon(p, 3, true); break; }
+    case 0xE0BE: { const D2D1_POINT_2F p[] = { {l, t}, {r, t}, {r, b} }; polygon(p, 3, true); break; }
+    case 0xE0B9: case 0xE0BF: line(l, t, r, b); break;
+    case 0xE0BB: case 0xE0BD: line(r, t, l, b); break;
+    default: break;
+    }
 }
 
 /* The block elements, U+2580..U+259F. x, y is the cell's top left corner. */
@@ -301,7 +388,9 @@ inline bool Draw(ID2D1RenderTarget *target, ID2D1SolidColorBrush *brush, int x, 
     if (!IsHandled(c) || cw < 2 || ch < 2)
         return false;
     const Canvas g{ target, brush, rgb };
-    if (c < 0x2580)
+    if (c >= 0xE0B0)
+        DrawPowerline(g, x, y, cw, ch, c);
+    else if (c < 0x2580)
         DrawBox(g, x, y, cw, ch, c);
     else
         DrawBlock(g, x, y, cw, ch, c);

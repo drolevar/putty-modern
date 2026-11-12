@@ -1075,6 +1075,7 @@ PE_API int32_t pe_session_enable_terminal(pe_session *s, int32_t columns, int32_
 
     /* The order window.c uses (WinMain, then start_backend). */
     pe_termwin_init(&s->termwin, s);
+    s->termwin.conf = s->conf;      /* term_init already asks for the palette overrides, which read "Use system colours" from it */
     s->term = term_init(s->conf, &s->ucsdata, &s->termwin.tw);
     pe_termwin_use_settings(&s->termwin, s->term, s->conf);
     term_set_trust_status(s->term, s->trusted);
