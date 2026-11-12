@@ -3,10 +3,10 @@
 # What it does not run: the end-to-end checks of the real app (tools/app-*-smoke.ps1). They drive the app with
 # UI Automation and real input and run in Windows Sandbox (tools/run-in-sandbox.ps1), which hosted runners do not have.
 #
-# NOT YET RUN: written on a machine from which nothing may be pushed, so the first run on GitHub is the first test of it.
-# What can go wrong on a hosted runner, in the order I would look: the .NET SDK in global.json (11.0.100) being offered by
-# setup-dotnet; Visual Studio's C++ x64 tools and its bundled CMake and Ninja (build/native.cmd finds them with vswhere);
-# the Windows SDK 10.0.26100 the WinUI projects target; Node for the SSH tests (they are inconclusive, not failed, without it).
+# Status: green since its first run (2026-11-12), about five minutes. The first run needed no change: setup-dotnet found the
+# SDK pinned in global.json (11.0.100), the runner has Visual Studio's C++ x64 tools with the bundled CMake and Ninja that
+# build/native.cmd finds with vswhere, and the Windows SDK 10.0.26100. Node serves the SSH tests (they are inconclusive, not
+# failed, without it); the serial data test is inconclusive on a runner (no serial pair).
 name: CI
 
 on:
