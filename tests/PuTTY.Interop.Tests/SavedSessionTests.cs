@@ -184,4 +184,35 @@ public sealed class SavedSessionTests
 
         Assert.AreEqual(before, registry.Snapshot(), "opening a saved session must leave PuTTY's storage as it was");
     }
+
+    /// <summary>
+    /// "user@host" in the Host Name box: PuTTY's own launcher (windows/putty.c) splits it with prepare_session before it
+    /// starts the session, and so must the engine, or "me@server" is looked up as a host name and fails with
+    /// "Error 11003: A non-recoverable error occurred during a database lookup". Also a ":port" suffix and whitespace.
+    /// </summary>
+    [TestMethod]
+    [DataRow("someone@127.0.0.1", "127.0.0.1", "someone")]
+    [DataRow("  127.0.0.1  ", "127.0.0.1", null)]
+    [DataRow("127.0.0.1:9999", "127.0.0.1", null)]
+    [DataRow("a@b@127.0.0.1", "127.0.0.1", "a@b")]
+    public void A_user_at_host_in_the_host_name_is_split_before_connecting(string savedHost, string expectedHost, string? expectedUser)
+    {
+        using var registry = new RegistrySandbox();
+        using var server = new LoopbackServer();
+        registry.WriteSession("user at host", savedHost, server.Port, "raw", null);
+        using var engine = new EngineThread();
+
+        PuttySession session = engine.Run(() =>
+        {
+            var s = PuttySession.OpenSaved("user at host");
+            s.Start();
+            return s;
+        });
+
+        Assert.IsTrue(EngineThread.WaitUntil(() => server.ClientCount == 1, Generous), "never connected to " + savedHost);
+        SessionEndpoint endpoint = engine.Run(() => session.GetEndpoint());
+        Assert.AreEqual(expectedHost, endpoint.Host);
+        Assert.AreEqual(expectedUser, string.IsNullOrEmpty(endpoint.UserName) ? null : endpoint.UserName);
+        engine.Run(session.Dispose);
+    }
 }

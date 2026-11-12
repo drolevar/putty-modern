@@ -638,9 +638,26 @@ static void log_session_target(uint64_t serial, Conf *conf, const char *host, in
  * Starts the connection for a session whose settings are ready. Takes ownership of `conf`, also
  * when it fails.
  */
-static int32_t session_start(Conf *conf, const char *host, int port, const BackendVtable *vt,
+static int32_t session_start(Conf *conf, const char *requested_host, int port, const BackendVtable *vt,
                              const pe_session_events *events, void *user, pe_session **out_session)
 {
+    /*
+     * What PuTTY's own launcher (windows/putty.c, cfg_launch) does before it starts a session, and which a front end
+     * that replaces it must do too: "user@host" in the Host Name box becomes a user name and a host, a ":port" suffix
+     * is dropped, whitespace is trimmed. Without it "me@server" is looked up as a host name and fails with
+     * "Error 11003: A non-recoverable error occurred during a database lookup". Our own copy of the settings, so the
+     * saved session in the registry is not changed.
+     */
+    const char *before = conf_get_str(conf, CONF_host);
+    char *original = dupstr(before ? before : "");
+    prepare_session(conf);
+    const char *host = conf_get_str(conf, CONF_host);
+    if (strcmp(original, host) != 0)
+        pe_log(PE_LOG_INFO, "host name '%s' prepared as '%s' (user name '%s')", original, host,
+               conf_get_str_ambi(conf, CONF_username, NULL));
+    sfree(original);
+    (void)requested_host;       /* the Conf is the source of truth: open_ex put the same text there */
+
     pe_session *s = snew(pe_session);
     memset(s, 0, sizeof(*s));
     s->serial = ++session_serial_counter;
