@@ -123,7 +123,7 @@ void pe_handle_wait_fire(uintptr_t id)
     arm(hw);                    /* still signalled: it fires again */
 }
 
-/* The engine starts: waits may be armed from now on, and any made before (none are) are armed. */
+/* The engine starts: waits may be armed from now on, and any that survived an earlier engine are armed again. */
 void pe_handle_waits_start(HWND window)
 {
     target_window = window;
@@ -131,17 +131,18 @@ void pe_handle_waits_start(HWND window)
         arm(hw);
 }
 
-/* The engine stops: no more messages, and every wait that is left is dropped. */
+/*
+ * The engine stops: no more messages, every wait is disarmed. The entries stay: handle-io.c registers its one
+ * ready_event once per process (ensure_ready_event_setup) and never again, so dropping the entry would leave every
+ * later engine in the process (a restart, a test) with handle I/O that never wakes up: the OpenSSH agent's pipe, a
+ * proxy command and the serial line all stop working. The sessions were closed before this is called, so what is left
+ * is what PuTTY keeps for the life of the process; pe_handle_waits_start arms it again.
+ */
 void pe_handle_waits_stop(void)
 {
     for (HandleWait *hw = waits; hw; hw = hw->next)
         disarm(hw);
     target_window = NULL;
-    while (waits) {
-        HandleWait *hw = waits;
-        waits = hw->next;
-        sfree(hw);
-    }
 }
 
 /* PuTTY's own event loops (not linked here) would wait on this list; the engine's waits are in the pool. */

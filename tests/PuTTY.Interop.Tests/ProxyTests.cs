@@ -170,22 +170,27 @@ public sealed class ProxyTests
                 // the command is stored with backslash escapes (\n is a newline, \ a backslash), so a path needs them doubled
                 ("ProxyTelnetCommand", $"powershell -NoProfile -ExecutionPolicy Bypass -File \"{relay.Replace("\\", "\\\\")}\" %host %port"),
                 ("ProxyLocalhost", 1));
-            using var engine = new EngineThread();
-            var output = new StringBuilder();
-
-            var lines = new List<string>();
-            PuttySession session = Open(engine, output, s =>
+            // Twice, each time on a new engine: handle-io.c registers its ready_event once per process, so an engine
+            // that dropped that wait at shutdown left every later engine with handle I/O that never woke up.
+            for (int round = 1; round <= 2; round++)
             {
-                s.Log += (_, e) => { lock (lines) { lines.Add(e.Text); } };
-                s.Error += (_, e) => { lock (lines) { lines.Add("ERROR " + e.Message); } };
-            });
+                using var engine = new EngineThread();
+                var output = new StringBuilder();
 
-            Assert.IsTrue(EngineThread.WaitUntil(() => target.ClientCount == 1, TimeSpan.FromSeconds(30)),
-                "the relay never reached the target; the session said: " + string.Join(" | ", lines));
-            engine.Run(() => session.Send(Encoding.UTF8.GetBytes("through the command")));
-            Assert.IsTrue(EngineThread.WaitUntil(() => Contains(output, "through the command"), Generous),
-                "the echo of what was sent never came back through the proxy command");
-            engine.Run(session.Dispose);
+                var lines = new List<string>();
+                PuttySession session = Open(engine, output, s =>
+                {
+                    s.Log += (_, e) => { lock (lines) { lines.Add(e.Text); } };
+                    s.Error += (_, e) => { lock (lines) { lines.Add("ERROR " + e.Message); } };
+                });
+
+                Assert.IsTrue(EngineThread.WaitUntil(() => target.ClientCount == round, TimeSpan.FromSeconds(30)),
+                    "the relay never reached the target in round " + round + "; the session said: " + string.Join(" | ", lines));
+                engine.Run(() => session.Send(Encoding.UTF8.GetBytes("through the command")));
+                Assert.IsTrue(EngineThread.WaitUntil(() => Contains(output, "through the command"), Generous),
+                    "the echo of what was sent never came back through the proxy command");
+                engine.Run(session.Dispose);
+            }
         }
         finally
         {

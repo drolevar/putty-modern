@@ -38,7 +38,7 @@ public sealed class PortForwardingTests
         {
             Server = SshServerFixture.Start(serverArguments);
             Registry.WriteSession("forwarded", "127.0.0.1", Server.Port, "ssh", SshServerFixture.User,
-                ("PortForwardings", forwardings));
+                ("PortForwardings", forwardings), ("TryAgent", 0));   // a Pageant running on the developer's machine must not matter
             Session = Engine.Run(() =>
             {
                 PuttySession session = PuttySession.OpenSaved("forwarded");
