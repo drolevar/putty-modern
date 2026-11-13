@@ -1,4 +1,6 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Imaging;
 using PuTTY.Interop;
 using Windows.Graphics;
 
@@ -25,7 +27,25 @@ internal sealed partial class SettingsWindow : Window
         this.dialog = dialog;
         Title = title;
         view = new SettingsView(dialog, () => Content?.XamlRoot, () => WinRT.Interop.WindowNative.GetWindowHandle(this));
-        Content = view.Root;
+
+        // Like the main window, the title bar is the framework's own control in the window's content, so that it follows the
+        // theme of the app: the system's title bar is drawn light in a dark app, which is how this window looked before.
+        var titleBar = new TitleBar { Title = title };
+        string icon = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        if (File.Exists(icon))
+        {
+            titleBar.IconSource = new ImageIconSource { ImageSource = new BitmapImage(new Uri(icon)) };
+        }
+
+        var frame = new Grid();
+        frame.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        frame.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        frame.Children.Add(titleBar);
+        Grid.SetRow(view.Root, 1);
+        frame.Children.Add(view.Root);
+        Content = frame;
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(titleBar);
         SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();      // the sketch's #F3F3F3 base is Mica
         WindowSizing.Resize(AppWindow, 1120, 860);                           // the size of the Figma frame, or the screen if that is smaller
         view.Ended += OnEnded;
