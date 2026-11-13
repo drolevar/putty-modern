@@ -49,7 +49,7 @@ jobs:
         run: dotnet build PuTTY.slnx -c Release
 
       - name: Unit tests
-        run: dotnet test --solution PuTTY.slnx -c Release
+        run: dotnet test --solution PuTTY.slnx -c Release --output Detailed
 
       - name: Publish the NativeAOT build
         run: dotnet publish src/PuTTY.App -c Release -r win-x64
