@@ -16,10 +16,6 @@ param(
     [string] $Screenshot = ''
 )
 
-if ($env:USERNAME -ne 'WDAGUtilityAccount') {
-    Write-Host 'This starts the real app and opens windows: run it in Windows Sandbox with tools\run-in-sandbox.ps1 -Smoke appearance.'
-    exit 99
-}
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not $Screenshot) { $Screenshot = Join-Path $root 'artifacts\spike\app-appearance.png' }

@@ -22,10 +22,6 @@ param(
     [Parameter(Mandatory)] [string] $Exe
 )
 
-if ($env:USERNAME -ne 'WDAGUtilityAccount') {
-    Write-Host 'This installs an account, starts Pageant and drives the app: run it in Windows Sandbox with tools\run-in-sandbox.ps1 -Smoke agent.'
-    exit 99
-}
 . (Join-Path $PSScriptRoot 'smoke-common.ps1')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -56,8 +52,9 @@ public static class AgentSmokeNative
 '@
 
 $user = 'puttyagent'
-$password = 'Putty-Agent-2026!'
+$password = 'Pw-' + [guid]::NewGuid().ToString('N') + '-aA1!'      # new for every run: sshd listens while the account exists
 $keys = Join-Path $root 'agent-keys'
+if (-not (Test-Path $keys)) { $keys = Join-Path $root 'artifacts\agent-keys' }       # on this machine (tools\run-checks.ps1) the key is where the test wrote it
 $ppk = Join-Path $keys 'agent.ppk'
 $pageantExe = 'C:\Program Files\PuTTY\pageant.exe'
 $authorizedKeys = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'
@@ -65,22 +62,43 @@ $marker = Join-Path $root 'results\agent-ok.txt'
 
 Check 'the key for the agent was made' ((Test-Path $ppk) -and (Test-Path (Join-Path $keys 'agent.pub')))
 Check 'Pageant is installed' (Test-Path $pageantExe)
+# A Pageant that is already running is the user's, with their keys: it is not stopped, and it would also be asked first.
+if (Get-Process -Name pageant -ErrorAction SilentlyContinue) {
+    Write-Host 'FAIL  Pageant is already running: close it (it holds your keys) and run the check again'
+    exit 98
+}
 $sshd = Get-Service sshd -ErrorAction SilentlyContinue
 Check 'the OpenSSH server (sshd) is running' ($sshd -and $sshd.Status -eq 'Running') "($($sshd.Status))"
 if ($failures -gt 0) { exit $failures }
 
 # An administrator account for the login, whose only authorized key is the agent's. (For members of the Administrators
 # group sshd reads administrators_authorized_keys, which needs no user profile to exist yet.)
-Remove-LocalUser -Name $user -ErrorAction SilentlyContinue
-$account = New-LocalUser -Name $user -Password (ConvertTo-SecureString $password -AsPlainText -Force) -AccountNeverExpires -PasswordNeverExpires
+# Only an account this check made (it says so in its description) is ever removed: on a machine that is somebody's, an
+# account with this name is theirs.
+$accountTag = 'putty-modern e2e check (temporary account)'
+$existing = Get-LocalUser -Name $user -ErrorAction SilentlyContinue
+if ($existing -and $existing.Description -ne $accountTag) {
+    Write-Host "FAIL  a local account named $user exists and is not one this check made: it is left alone and the check does not run"
+    exit 98
+}
+if ($existing) { Remove-LocalUser -Name $user }      # left by an earlier run that did not get to clean up
+$account = New-LocalUser -Name $user -Password (ConvertTo-SecureString $password -AsPlainText -Force) -Description $accountTag -AccountNeverExpires -PasswordNeverExpires
 Add-LocalGroupMember -Group 'Administrators' -Member $user
+# The administrators' authorized keys file may be somebody's own: it is moved aside (with its permissions) and put back at
+# the end. A copy left by an earlier run that did not finish is not overwritten, whatever is in the file now.
+$authorizedSaved = "$authorizedKeys.putty-modern-saved"
+if (Test-Path $authorizedSaved) {
+    Write-Host "FAIL  $authorizedSaved exists, left by an earlier run: check by hand which of the two files is the real one, then remove it"
+    exit 98
+}
+if (Test-Path $authorizedKeys) { Move-Item $authorizedKeys $authorizedSaved }
 [System.IO.File]::WriteAllText($authorizedKeys, ((Get-Content (Join-Path $keys 'agent.pub') -Raw).Trim() + "`n"), (New-Object System.Text.UTF8Encoding($false)))
 & icacls.exe $authorizedKeys /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
 Check 'a local administrator account with the agent''s key as its only key was made' ($null -ne $account -and (Test-Path $authorizedKeys))
 Remove-Item $marker -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
 
-function Stop-Pageant { Get-Process -Name pageant -ErrorAction SilentlyContinue | Stop-Process -Force }
+function Stop-Pageant { if ($script:pageant -and -not $script:pageant.HasExited) { Stop-Process -Id $script:pageant.Id -Force } }      # only the one this check started
 function Close-App($app) {
     if ($app -and -not $app.HasExited) { [void]$app.CloseMainWindow(); [void]$app.WaitForExit(10000) }
     if ($app -and -not $app.HasExited) { $app.Kill() }
@@ -89,7 +107,6 @@ function Close-App($app) {
 $app = $null
 try {
     # --- Pageant holds the key
-    Stop-Pageant
     $pageant = Start-Process -FilePath $pageantExe -ArgumentList "`"$ppk`"" -PassThru
     Start-Sleep -Seconds 4
     Check 'Pageant is running' (-not $pageant.HasExited)
@@ -135,5 +152,6 @@ finally {
     Stop-Pageant
     Remove-LocalUser -Name $user -ErrorAction SilentlyContinue
     Remove-Item $authorizedKeys -ErrorAction SilentlyContinue
+    if (Test-Path $authorizedSaved) { Move-Item $authorizedSaved $authorizedKeys }
 }
 exit $failures

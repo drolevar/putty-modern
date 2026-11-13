@@ -1,6 +1,6 @@
 <#
-  Helpers shared by the end-to-end scripts (dot-sourced). They use winapp, and they assume the app runs in
-  Windows Sandbox (tools\run-in-sandbox.ps1): they click.
+  Helpers shared by the end-to-end scripts (dot-sourced). They use winapp, and they click: they run on the desktop
+  they are started on, which is this machine's (tools\run-checks.ps1) or the Sandbox's (tools\run-in-sandbox.ps1).
 #>
 
 # Gives the terminal the keyboard focus, as a user does, by clicking inside it. The terminal takes keys only

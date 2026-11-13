@@ -21,10 +21,6 @@ param(
     [Parameter(Mandatory)] [string] $Exe
 )
 
-if ($env:USERNAME -ne 'WDAGUtilityAccount') {
-    Write-Host 'This starts an X server and drives the app: run it in Windows Sandbox with tools\run-in-sandbox.ps1 -Smoke x11.'
-    exit 99
-}
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $esc = [string][char]27
@@ -57,6 +53,11 @@ Check 'the X server (VcXsrv) is installed' (Test-Path $vcxsrv)
 $modules = Join-Path $root 'artifacts\ssh-test-server\node_modules'
 Check 'the test SSH server''s package is installed' (Test-Path (Join-Path $modules 'ssh2'))
 if ($failures -gt 0) { exit $failures }
+# An X server that is already running is the user's: it is not stopped, and it would hold the port the check needs.
+if (Get-Process -Name vcxsrv -ErrorAction SilentlyContinue) {
+    Write-Host 'FAIL  VcXsrv is already running: close it and run the check again'
+    exit 98
+}
 
 # --- the scratch "HKEY_CURRENT_USER" with the saved session
 $leaf = "e2e-x11-$([guid]::NewGuid().ToString('N'))"
@@ -73,8 +74,8 @@ try {
     # foreground of the guest and makes every later check that needs the foreground (a right-click, a drag) refuse to act.
     # A rule that allows it first means the question is never asked.
     Get-NetFirewallRule -DisplayName 'puttymodern-vcxsrv' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-    [void](New-NetFirewallRule -DisplayName 'puttymodern-vcxsrv' -Direction Inbound -Program $vcxsrv -Action Allow -Profile Any)
-    Get-Process -Name vcxsrv -ErrorAction SilentlyContinue | Stop-Process -Force
+    # (Only from this machine: the X server runs with access control off, and the rule is for the check, not the network.)
+    [void](New-NetFirewallRule -DisplayName 'puttymodern-vcxsrv' -Direction Inbound -Program $vcxsrv -Action Allow -Profile Any -RemoteAddress 127.0.0.1)
     $xserver = Start-Process -FilePath $vcxsrv -ArgumentList @(':0', '-ac', '-nowgl', '-multiwindow', '-noreset') -PassThru
     $listening = $false
     $deadline = (Get-Date).AddSeconds(40)
@@ -138,7 +139,7 @@ finally {
     $env:PUTTYMODERN_TEST_REGISTRY_ROOT = $null
     if ($app -and -not $app.HasExited) { $app.Kill() }
     if ($server) { try { $server.StandardInput.Close(); if (-not $server.WaitForExit(3000)) { $server.Kill() } } catch { } }
-    Get-Process -Name vcxsrv -ErrorAction SilentlyContinue | Stop-Process -Force
+    if ($xserver -and -not $xserver.HasExited) { Stop-Process -Id $xserver.Id -Force }      # only the one this check started
     Get-NetFirewallRule -DisplayName 'puttymodern-vcxsrv' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     Remove-Item -Path $workDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path "HKCU:\Software\PuttyModernTests\$leaf" -Recurse -Force -ErrorAction SilentlyContinue

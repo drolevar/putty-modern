@@ -14,14 +14,9 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Exe,
-    [string] $Screenshot = '',
-    [switch] $AllowHostDesktop
+    [string] $Screenshot = ''
 )
 
-if ($env:USERNAME -ne 'WDAGUtilityAccount' -and -not $AllowHostDesktop) {
-    Write-Host 'This starts the app and drives its windows. Run it in Windows Sandbox with tools\run-in-sandbox.ps1, or pass -AllowHostDesktop to use this desktop.'
-    exit 99
-}
 . (Join-Path $PSScriptRoot 'smoke-common.ps1')
 $ErrorActionPreference = 'Stop'
 if (-not $Screenshot) { $Screenshot = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\artifacts\spike\app-terminal.png' }

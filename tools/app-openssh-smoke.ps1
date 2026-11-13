@@ -13,14 +13,9 @@
   Prints PASS or FAIL per check; the exit code is the number of failures.
 #>
 param(
-    [Parameter(Mandatory)] [string] $Exe,
-    [switch] $AllowHostDesktop
+    [Parameter(Mandatory)] [string] $Exe
 )
 
-if ($env:USERNAME -ne 'WDAGUtilityAccount' -and -not $AllowHostDesktop) {
-    Write-Host 'This installs an account and drives the app: run it in Windows Sandbox with tools\run-in-sandbox.ps1 -Smoke openssh.'
-    exit 99
-}
 . (Join-Path $PSScriptRoot 'smoke-common.ps1')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -51,16 +46,24 @@ public static class OpenSshSmokeNative
 '@
 
 $user = 'puttytest'
-$password = 'Putty-Test-2026!'
+$password = 'Pw-' + [guid]::NewGuid().ToString('N') + '-aA1!'      # new for every run: sshd listens while the account exists
 $marker = Join-Path $root 'results\openssh-ok.txt'
 $sshd = Get-Service sshd -ErrorAction SilentlyContinue
 Check 'the OpenSSH server (sshd) is running' ($sshd -and $sshd.Status -eq 'Running') "($($sshd.Status))"
 if (-not ($sshd -and $sshd.Status -eq 'Running')) { exit $failures }
 
-# An account for the login (the Sandbox is disposable; it is removed again below anyway). New-LocalUser, not `net user`:
+# An account for the login (removed again below). New-LocalUser, not `net user`:
 # net asks a question on the console when the password is longer than 14 characters and fails when nobody answers.
-Remove-LocalUser -Name $user -ErrorAction SilentlyContinue
-$account = New-LocalUser -Name $user -Password (ConvertTo-SecureString $password -AsPlainText -Force) -AccountNeverExpires -PasswordNeverExpires
+# Only an account this check made (it says so in its description) is ever removed: on a machine that is somebody's, an
+# account with this name is theirs.
+$accountTag = 'putty-modern e2e check (temporary account)'
+$existing = Get-LocalUser -Name $user -ErrorAction SilentlyContinue
+if ($existing -and $existing.Description -ne $accountTag) {
+    Write-Host "FAIL  a local account named $user exists and is not one this check made: it is left alone and the check does not run"
+    exit 98
+}
+if ($existing) { Remove-LocalUser -Name $user }      # left by an earlier run that did not get to clean up
+$account = New-LocalUser -Name $user -Password (ConvertTo-SecureString $password -AsPlainText -Force) -Description $accountTag -AccountNeverExpires -PasswordNeverExpires
 Check 'a local account for the login was made' ($null -ne $account)
 Remove-Item $marker -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null

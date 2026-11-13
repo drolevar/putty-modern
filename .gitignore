@@ -1,6 +1,9 @@
 # Build output (all projects write here; see Directory.Build.props UseArtifactsOutput)
 artifacts/
 
+# Scratch files of the end-to-end checks (tools/app-*-smoke.ps1) when they run on this machine
+/results/
+
 # .NET / Visual Studio
 bin/
 obj/

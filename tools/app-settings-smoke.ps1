@@ -15,14 +15,9 @@
   Prints PASS or FAIL per check; the exit code is the number of failures.
 #>
 param(
-    [Parameter(Mandatory)] [string] $Exe,
-    [switch] $AllowHostDesktop
+    [Parameter(Mandatory)] [string] $Exe
 )
 
-if ($env:USERNAME -ne 'WDAGUtilityAccount' -and -not $AllowHostDesktop) {
-    Write-Host 'This starts the app and drives its windows. Run it in Windows Sandbox with tools\run-in-sandbox.ps1, or pass -AllowHostDesktop to use this desktop.'
-    exit 99
-}
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $esc = [string][char]27

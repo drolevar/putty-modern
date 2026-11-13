@@ -18,10 +18,6 @@ param(
     [string] $Screenshot = ''
 )
 
-if ($env:USERNAME -ne 'WDAGUtilityAccount') {
-    Write-Host 'This drags a tab with the real mouse: run it in Windows Sandbox with tools\run-in-sandbox.ps1 -Smoke workspace.'
-    exit 99
-}
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not $Screenshot) { $Screenshot = Join-Path $root 'artifacts\spike\app-workspace.png' }
@@ -100,21 +96,28 @@ function Move-To($x, $y) {
     Start-Sleep -Milliseconds 60
 }
 
-# Drags a tab into a group of its own below the others: pick up its header, take it to the middle of the document area,
-# where the docking library shows a compass of drop guides, and let go over the one that points down (measured in the
-# Sandbox: it is about 27 px below the pointer when the pointer is at 40% of the window's height).
-function Split-Below($process, $tabName) {
+# Drags a tab into a group of its own below the others: pick up its header, take it to the middle of the group, where the
+# docking library shows a compass of drop guides centred on the group, and let go over the guide that points down (one
+# guide size, 40 px at 100% scaling, below the centre). The centre is worked out from where UI Automation puts the group:
+# its tab strip on top and the terminal's scroll bar at its right and bottom edges. (It was a point measured in the
+# Sandbox as a fraction of the window's height, which is the wrong place in a window of another size.)
+# Returns whether the split happened: the two tabs are no longer in one strip.
+function Split-Below($process, $tabName, $otherTab = 'e2e alpha') {
     $process.Refresh()
     [WorkspaceSmokeNative]::SwitchToThisWindow($process.MainWindowHandle, $true)
     Start-Sleep -Seconds 1
-    $rect = New-Object WorkspaceSmokeNative+RECT
-    [void][WorkspaceSmokeNative]::GetWindowRect($process.MainWindowHandle, [ref]$rect)
-    $tabInfo = Ui @('get-property', $tabName, '--type', 'TabItem')
-    if ($tabInfo -notmatch 'BoundingRectangle:\s*(-?\d+),(-?\d+),(\d+),(\d+)') { return $false }
+    $rectangle = 'BoundingRectangle:\s*(-?\d+),(-?\d+),(\d+),(\d+)'
+    if ((Ui @('get-property', $tabName, '--type', 'TabItem')) -notmatch $rectangle) { return $false }
     $tx = [int]$Matches[1] + [int]$Matches[3] / 2
     $ty = [int]$Matches[2] + [int]$Matches[4] / 2
-    $cx = [int](($rect.Left + $rect.Right) / 2)
-    $cy = [int]($rect.Top + ($rect.Bottom - $rect.Top) * 0.4)
+    $groupTop = [int]$Matches[2]
+    $groupLeft = [int]$Matches[1]
+    if ((Ui @('get-property', $otherTab, '--type', 'TabItem')) -match $rectangle) { $groupLeft = [Math]::Min($groupLeft, [int]$Matches[1]) }
+    if ((Ui @('get-property', 'TerminalScrollBar')) -notmatch $rectangle) { return $false }
+    $groupRight = [int]$Matches[1] + [int]$Matches[3]
+    $groupBottom = [int]$Matches[2] + [int]$Matches[4]
+    $cx = [int](($groupLeft + $groupRight) / 2)
+    $cy = [int](($groupTop + $groupBottom) / 2)
     Move-To $tx $ty
     [WorkspaceSmokeNative]::mouse_event([WorkspaceSmokeNative]::LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds 120
@@ -122,13 +125,17 @@ function Split-Below($process, $tabName) {
     Start-Sleep -Milliseconds 900
     Move-To ($cx + 2) ($cy + 2)
     Start-Sleep -Milliseconds 700
-    Move-To ($cx + 3) ($cy + 27)
+    Move-To ($cx + 2) ($cy + 42)
     Start-Sleep -Milliseconds 700
     [WorkspaceSmokeNative]::mouse_event([WorkspaceSmokeNative]::LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
     Start-Sleep -Seconds 2
-    return $true
-}
 
+    # The split took if the two tab headers are now in different strips: one well below the other.
+    if ((Ui @('get-property', $tabName, '--type', 'TabItem')) -notmatch $rectangle) { return $false }
+    $movedTop = [int]$Matches[2]
+    if ((Ui @('get-property', $otherTab, '--type', 'TabItem')) -notmatch $rectangle) { return $false }
+    return ([Math]::Abs($movedTop - [int]$Matches[2]) -gt 60)
+}
 # --- the scratch "HKEY_CURRENT_USER" with two saved sessions
 $leaf = "e2e-workspace-$([guid]::NewGuid().ToString('N'))"
 $scratch = "Software\PuttyModernTests\$leaf"

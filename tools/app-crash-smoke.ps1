@@ -17,10 +17,6 @@ param(
     [Parameter(Mandatory)] [string] $Exe
 )
 
-if ($env:USERNAME -ne 'WDAGUtilityAccount') {
-    Write-Host 'This starts the app and makes it hit a fatal error: run it in Windows Sandbox with tools\run-in-sandbox.ps1 -Smoke crash.'
-    exit 99
-}
 $ErrorActionPreference = 'Stop'
 $esc = [string][char]27
 $failures = 0
