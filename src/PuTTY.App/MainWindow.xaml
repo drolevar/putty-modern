@@ -59,7 +59,7 @@
                     </docking:DocumentHost>
 
                     <docking:ToolWindowContainer docking:DockSite.RelativeSize="0.25">
-                        <docking:ToolWindow Title="Connection log" SerializationId="log">
+                        <docking:ToolWindow x:Name="LogPanel" Title="Connection log" SerializationId="log">
                             <!-- The log of every session's connection is built in code (ConnectionLogController). -->
                             <UserControl x:Name="LogHost"
                                          HorizontalContentAlignment="Stretch"
@@ -70,7 +70,7 @@
                 </docking:SplitContainer>
 
                 <docking:ToolWindowContainer docking:DockSite.RelativeSize="0.2">
-                    <docking:ToolWindow Title="Session details" SerializationId="details">
+                    <docking:ToolWindow x:Name="DetailsPanel" Title="Session details" SerializationId="details">
                         <!-- The open session's name, state and Session settings button are built in code (SessionDetailsController). -->
                         <UserControl x:Name="DetailsHost"
                                      HorizontalContentAlignment="Stretch"

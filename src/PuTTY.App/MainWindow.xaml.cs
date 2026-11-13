@@ -72,7 +72,8 @@ public sealed partial class MainWindow : Window
         // The layout and the open sessions come back as they were; they are saved when the window closes.
         DockSite.Loaded += (_, _) =>
         {
-            CaptureDefaultLayout();         // the panels as the markup has them, before the saved layout changes them
+            CollapseDefaultPanels();        // a fresh start has Session details and the Connection log as tabs at the edge
+            CaptureDefaultLayout();         // the built-in Default, with them so; a saved layout changes them afterwards
             RestoreWorkspace();
         };
         AppWindow.Closing += (_, _) => SaveWorkspace();

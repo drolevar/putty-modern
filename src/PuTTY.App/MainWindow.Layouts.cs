@@ -29,6 +29,39 @@ public sealed partial class MainWindow
         commands.SetLayouts(layouts.Names, currentLayout);
     }
 
+    /// <summary>
+    /// The built-in layout starts with Session details and the Connection log collapsed to tabs (the log's under the terminals,
+    /// the details' at the right edge), so the terminal has the room and the panels are one click away. It is done before
+    /// the Default layout is taken, so choosing Default in the command bar gives the same arrangement as a fresh start, and a
+    /// saved workspace replaces it as it replaces everything else.
+    /// </summary>
+    /// <remarks>
+    /// The end-to-end checks read both panels (the buttons of Session details, the connection log's rows), which a collapsed
+    /// panel does not show until it is opened, so a run started with <c>--connect</c> or with the test registry keeps them
+    /// docked unless it asks for the real default with <see cref="TestRegistry.CollapsedPanelsVariable"/>.
+    /// </remarks>
+    private void CollapseDefaultPanels()
+    {
+        bool collapse = Environment.GetEnvironmentVariable(TestRegistry.CollapsedPanelsVariable) == "1"
+            || (!startedWithTarget && !TestRegistry.IsActive);
+        if (!collapse)
+        {
+            return;
+        }
+
+        // The dock site only knows the windows it has been asked about, and a window it does not know yet would
+        // put the collapse off until it loads, after the layout has been taken.
+        _ = DockSite.ToolWindows;
+        foreach (ToolWindow panel in new[] { DetailsPanel, LogPanel })
+        {
+            panel.AutoHide();
+            if (panel.State != DockingWindowState.AutoHide)
+            {
+                PuttyLog.Warning("app", $"\"{panel.Title}\" could not be collapsed at start (state {panel.State})");
+            }
+        }
+    }
+
     /// <summary>Keeps the layout the markup describes (the built-in Default) before anything changes it.</summary>
     private void CaptureDefaultLayout()
     {

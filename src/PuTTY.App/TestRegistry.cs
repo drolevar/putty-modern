@@ -19,6 +19,13 @@ internal static partial class TestRegistry
     private static readonly nint HkeyCurrentUser = unchecked((nint)(int)0x80000001);   // sign-extended, as predefined handles are
     private const int KeyAllAccess = 0xF003F;
 
+    /// <summary>
+    /// <c>PUTTYMODERN_TEST_COLLAPSED_PANELS=1</c> gives a run the real default layout, with Session details and the
+    /// Connection log collapsed. Without it a run started with <c>--connect</c> or with the test hook keeps them docked,
+    /// because the end-to-end checks read both and a collapsed panel shows nothing until it is opened.
+    /// </summary>
+    public const string CollapsedPanelsVariable = "PUTTYMODERN_TEST_COLLAPSED_PANELS";
+
     /// <summary>Where the workspace file lives when the test hook is active; null in normal use.</summary>
     public static string? WorkspaceFileOverride { get; private set; }
 
