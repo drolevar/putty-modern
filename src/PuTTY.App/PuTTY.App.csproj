@@ -17,11 +17,6 @@
     <!-- x64 only for now: the ARM64 MSVC tools are not installed. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishAot>true</PublishAot>
-    <!-- Workaround for WindowsAppSDK issue 6897: on the .NET 11 SDK, PublishAot turns on
-         UseOptimizedPublish, which runs XAML compilation before references are resolved
-         and fails with WMC1007. Verified on 11.0.100-rc.3 and again on 11.0.100 final (where removing this fails as MSB3030) with Windows App SDK 2.6.5
-         even for an unpackaged app. Remove once a fixed SDK or build tools ship. -->
-    <UseOptimizedPublish>false</UseOptimizedPublish>
     <!-- Required by CsWinRT for AOT (error CsWinRT1030): Digi21.WinUI.Docking types
          implement generic WinRT interfaces, so CsWinRT must generate unsafe code
          for them in this project. -->
