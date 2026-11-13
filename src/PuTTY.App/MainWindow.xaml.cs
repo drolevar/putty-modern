@@ -82,7 +82,11 @@ public sealed partial class MainWindow : Window
             RestoreWorkspace();
             FloodLogForTest();
         };
-        AppWindow.Closing += (_, _) => SaveWorkspace();
+        AppWindow.Closing += (_, _) =>
+        {
+            log.Shutdown();         // before the window goes: a flush on its timer after that ends the process
+            SaveWorkspace();
+        };
         DockSite.WindowActivated += (_, e) =>
         {
             if (e.Window is DocumentWindow document && tabOf.TryGetValue(document, out SessionTab? tab))

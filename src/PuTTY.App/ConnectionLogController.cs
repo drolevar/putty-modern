@@ -79,6 +79,7 @@ internal sealed class ConnectionLogController
     private bool userSized;
     private bool rebuilding;
     private bool templateWarned;
+    private bool shutDown;
 
     public ConnectionLogController(UserControl host)
     {
@@ -140,9 +141,25 @@ internal sealed class ConnectionLogController
         };
     }
 
+    /// <summary>
+    /// Called when the window starts to close: the timer stops and nothing touches the list again. A session that ends with the
+    /// window still says so ("Connection closed"), and a flush on the timer after the window is gone made the process fail fast
+    /// (a stowed exception, exit code 0xC000027B) in about one close in four while lines were arriving.
+    /// </summary>
+    public void Shutdown()
+    {
+        shutDown = true;
+        timer.Stop();
+    }
+
     /// <summary>One line of a session's log (<paramref name="error"/>: an error, shown in the error colour).</summary>
     public void Add(string session, string text, bool error = false)
     {
+        if (shutDown)
+        {
+            return;
+        }
+
         if (model.Add(new LogEntry(DateTime.Now, session, text, error)))
         {
             Learn(session);
@@ -157,6 +174,11 @@ internal sealed class ConnectionLogController
     /// <summary>Forgets every line (of every session, whatever the filter shows).</summary>
     public void Clear()
     {
+        if (shutDown)
+        {
+            return;
+        }
+
         model.Clear();
         Flush();
     }
@@ -234,7 +256,7 @@ internal sealed class ConnectionLogController
     // Applies what the model has gathered since the last time to the list.
     private void Flush()
     {
-        if (!model.HasPending)
+        if (shutDown || !model.HasPending)
         {
             return;
         }
