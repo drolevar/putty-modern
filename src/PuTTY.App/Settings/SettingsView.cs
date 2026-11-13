@@ -113,17 +113,15 @@ internal sealed partial class SettingsView
 
     private void Layout()
     {
+        // Two columns (the navigation pane and the page) over one row, and under both a bar that runs the whole width of the
+        // window: Restore defaults and the buttons belong to the window, not to the page.
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(256) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         Grid navigation = BuildNavigation();
         root.Children.Add(navigation);
-
-        var content = new Grid();
-        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetColumn(content, 1);
-        root.Children.Add(content);
 
         // The header (breadcrumb, title, subtitle) scrolls with the cards, as the page is one column.
         breadcrumb.ItemClicked += (_, e) => OnBreadcrumbClicked(e.Index);
@@ -146,11 +144,13 @@ internal sealed partial class SettingsView
         page.Children.Add(pageContent);
         pageHost.Content = page;
         pageHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-        content.Children.Add(pageHost);
+        Grid.SetColumn(pageHost, 1);
+        root.Children.Add(pageHost);
 
         FrameworkElement actions = BuildActions();
         Grid.SetRow(actions, 1);
-        content.Children.Add(actions);
+        Grid.SetColumnSpan(actions, 2);
+        root.Children.Add(actions);
     }
 
     /// <summary>The navigation pane: "Settings", "Find a setting", the PAGES caption, the tree, About and Help.</summary>
@@ -212,7 +212,7 @@ internal sealed partial class SettingsView
         return nav;
     }
 
-    /// <summary>The bar under the page: Restore defaults on the left; Cancel, Save and Open session on the right.</summary>
+    /// <summary>The bar along the bottom of the window, under the navigation pane and the page: Restore defaults on the left; Cancel, Save and Open session on the right.</summary>
     private FrameworkElement BuildActions()
     {
         var bar = new Grid { Padding = new Thickness(32, 0, 32, 0), Height = 76 };

@@ -1,13 +1,10 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Shapes;
 
 namespace PuTTY.App;
 
 /// <summary>
-/// Keeps WinUI classes that the app only ever <i>receives</i> from native code (control templates,
-/// <c>GetTemplateChild</c>, <c>FindName</c>, <c>XamlReader.Load</c>) known to the WinRT projection
-/// under NativeAOT.
+/// Keeps WinUI classes that the app only ever <i>receives</i> from native code (a resource looked up by key, control
+/// templates, <c>FindName</c>, <c>XamlReader.Load</c>) known to the WinRT projection under NativeAOT.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -15,18 +12,20 @@ namespace PuTTY.App;
 /// When the trimmer finds no use of that class in managed code, the lookup quietly falls back to the
 /// nearest known base class: a <c>ContentPresenter</c> comes back as a <c>FrameworkElement</c>, a
 /// <c>Button</c> as a <c>ContentControl</c>. Then <c>x as ContentPresenter</c> is null, no error is
-/// raised, and whatever depended on the cast silently does nothing. That is exactly why the docked
-/// windows' content was missing (the docking library plugs the windows into a
-/// <c>ContentPresenter</c> it gets from its template) and why the windows' Close buttons did nothing
-/// (<c>as Button</c>). Constructing an instance somewhere reachable is enough to keep the class known.
+/// raised, and whatever depended on the cast silently does nothing. Constructing an instance somewhere
+/// reachable is enough to keep the class known.
 /// </para>
 /// <para>
-/// List here every WinUI class that managed code casts to but never constructs, and check a new one
-/// the way CLAUDE.md (section NativeAOT) describes: load it with
-/// <c>XamlReader</c> and look at <c>GetType()</c>. The classes the docking library casts its template
-/// parts to are: <c>ContentPresenter</c>, <c>Rectangle</c>, <c>Border</c>, <c>Button</c> and
-/// <c>FontIcon</c>. The app itself casts a resource it looks up (<c>AccentButtonStyle</c>) to <c>Style</c>.
-/// <c>TextBlock</c>, <c>Grid</c> and <c>StackPanel</c> are already constructed by the app or the library.
+/// Until the docking library fixed it (<c>TemplatePart&lt;T&gt;</c> and <c>As&lt;T&gt;</c>, library 1.6.1-alpha.0.6 and
+/// later), this also listed the five classes the library casts its template parts to (<c>ContentPresenter</c>,
+/// <c>Rectangle</c>, <c>Border</c>, <c>Button</c>, <c>FontIcon</c>), without which the docked windows' content was
+/// missing and their Close buttons did nothing. They are gone: the owner ran the published app without them and the
+/// content, the glyphs and the Close buttons were right.
+/// </para>
+/// <para>
+/// What is left is the app's own cast of a resource it looks up (<c>AccentButtonStyle</c>) to <c>Style</c>. List here
+/// every WinUI class that the app's own code casts to but never constructs, and check a new one the way CLAUDE.md
+/// (section NativeAOT) describes: load it with <c>XamlReader</c> and look at <c>GetType()</c>.
 /// </para>
 /// </remarks>
 internal static class AotTypeAnchors
@@ -42,11 +41,6 @@ internal static class AotTypeAnchors
         }
 
         touched = true;
-        _ = new ContentPresenter();
-        _ = new Border();
-        _ = new Button();
-        _ = new FontIcon();
-        _ = new Rectangle();
         _ = new Style();
     }
 }
