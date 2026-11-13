@@ -1,0 +1,32 @@
+<Project Sdk="WixToolset.Sdk/7.0.1">
+  <!-- The setup program: one .exe that installs the Visual C++ runtime the engine needs (when the machine has an older one or
+       none) and then the package. -->
+  <PropertyGroup>
+    <OutputName>PuTTYModernSetup</OutputName>
+    <OutputType>Bundle</OutputType>
+    <!-- vc_redist.wxi is written into the intermediate folder by the FindVcRedist target. -->
+    <IncludeSearchPaths>$(IncludeSearchPaths);$(IntermediateOutputPath)</IncludeSearchPaths>
+    <DefineConstants>$(DefineConstants);AppIcon=$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..', 'src', 'PuTTY.App', 'Assets', 'AppIcon.ico'))</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PuTTY.Setup.Msi\PuTTY.Setup.Msi.wixproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Bal.wixext" />
+    <PackageReference Include="WixToolset.Util.wixext" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\Common\Common.wxi" Link="Common.wxi" />
+    <None Include="scripts\FindVcRedist.ps1" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <PrepareForBuildDependsOn>$(PrepareForBuildDependsOn);FindVcRedist</PrepareForBuildDependsOn>
+  </PropertyGroup>
+  <Target Name="FindVcRedist">
+    <Exec Command="powershell.exe -NonInteractive -ExecutionPolicy Bypass -NoProfile -File &quot;$(MSBuildThisFileDirectory)scripts\FindVcRedist.ps1&quot; -OutputFilePath &quot;$(IntermediateOutputPath)vc_redist.wxi&quot;" />
+  </Target>
+</Project>

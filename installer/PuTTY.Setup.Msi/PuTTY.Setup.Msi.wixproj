@@ -1,0 +1,32 @@
+<Project Sdk="WixToolset.Sdk/7.0.1">
+  <!-- The package: PuTTY Modern's NativeAOT publish folder, installed per machine under Program Files. -->
+  <PropertyGroup>
+    <OutputName>PuTTYModern</OutputName>
+
+    <!-- Where the app's publish folder is. By default the package publishes it first (dotnet publish, the same command CI runs);
+         CI publishes in a step of its own and passes -p:PublishApp=false so that it is not done twice. -->
+    <RepoRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..'))</RepoRoot>
+    <AppPublishDir Condition="'$(AppPublishDir)' == ''">$(RepoRoot)artifacts\publish\PuTTY.App\release_win-x64\</AppPublishDir>
+    <PublishApp Condition="'$(PublishApp)' == ''">true</PublishApp>
+    <DefineConstants>$(DefineConstants);AppPublishDir=$(AppPublishDir);AppIcon=$(RepoRoot)src\PuTTY.App\Assets\AppIcon.ico;LicenseRtf=$(MSBuildThisFileDirectory)License.rtf</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\Common\Common.wxi" Link="Common.wxi" />
+    <None Include="License.rtf" />
+  </ItemGroup>
+
+  <Target Name="PublishApp" BeforeTargets="PrepareForBuild" Condition="'$(PublishApp)' == 'true'">
+    <Message Importance="high" Text="Publishing PuTTY.App (NativeAOT, win-x64) for the package ..." />
+    <Exec Command="dotnet publish &quot;$(RepoRoot)src\PuTTY.App&quot; -c Release -r win-x64" WorkingDirectory="$(RepoRoot)" />
+  </Target>
+
+  <Target Name="CheckAppPublishDir" BeforeTargets="PrepareForBuild" DependsOnTargets="PublishApp">
+    <Error Condition="!Exists('$(AppPublishDir)PuTTY.App.exe')"
+           Text="No PuTTY.App.exe in $(AppPublishDir). Publish first (dotnet publish src\PuTTY.App -c Release -r win-x64) or pass -p:AppPublishDir=..." />
+  </Target>
+</Project>

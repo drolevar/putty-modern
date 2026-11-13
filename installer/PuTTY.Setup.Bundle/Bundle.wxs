@@ -1,0 +1,27 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <?include Common.wxi ?>
+
+  <!-- The bundle's upgrade code is its own (not the package's): never change it. -->
+  <Bundle Name="$(ProgName)"
+          Manufacturer="$(Manufacturer)"
+          Version="$(SetupVersion)"
+          UpgradeCode="A02FAC35-0085-44F1-86FE-F0DE44C379D8"
+          HelpUrl="$(HelpUrl)"
+          AboutUrl="$(HelpUrl)"
+          IconSourceFile="$(AppIcon)">
+
+    <!-- The stock setup window, with the licence as a link (the MIT licence is also the first page of the package's own UI). -->
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense"
+                                              LogoFile="$(InstallerAssets)logo.png"
+                                              LicenseUrl="$(LicenseUrl)"
+                                              SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <Chain>
+      <PackageGroupRef Id="VcRedist" />
+      <MsiPackage Id="Setup" SourceFile="$(var.PuTTY.Setup.Msi.TargetPath)" Compressed="yes" />
+    </Chain>
+  </Bundle>
+</Wix>

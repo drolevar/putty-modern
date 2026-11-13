@@ -1,4 +1,5 @@
-# Builds the repository from a clean checkout and runs the unit tests; also publishes the NativeAOT build as an artifact.
+# Builds the repository from a clean checkout and runs the unit tests; also publishes the NativeAOT build as an artifact and
+# builds the installer (the MSI and the setup program) from it, also an artifact.
 #
 # What it does not run: the end-to-end checks of the real app (tools/app-*-smoke.ps1). They drive the app with
 # UI Automation and real input and run in Windows Sandbox (tools/run-in-sandbox.ps1), which hosted runners do not have.
@@ -59,4 +60,18 @@ jobs:
         with:
           name: PuTTY.App-win-x64
           path: artifacts/publish/PuTTY.App/release_win-x64/
+          retention-days: 14
+
+      # The installer (installer/, WiX 7) packs the publish folder of the step above, so PublishApp=false: the package would
+      # otherwise publish it again. Its version is 0.1.<run number>.0 (installer/Version.props). Nothing is installed here.
+      - name: Build the installer (the package and the setup program)
+        run: dotnet build installer/PuTTY.Setup.Bundle/PuTTY.Setup.Bundle.wixproj -c Release -p:PublishApp=false
+
+      - name: Keep the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PuTTYModernSetup
+          path: |
+            artifacts/installer/PuTTY.Setup.Bundle/bin/Release/PuTTYModernSetup.exe
+            artifacts/installer/PuTTY.Setup.Msi/bin/Release/PuTTYModern.msi
           retention-days: 14

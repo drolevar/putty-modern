@@ -1,0 +1,72 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <?include Common.wxi ?>
+
+  <!-- Per machine, 64-bit (InstallerPlatform=x64 in Directory.Build.props). The upgrade code is the product's identity across
+       versions: never change it. -->
+  <Package Name="$(ProgName)"
+           Manufacturer="$(Manufacturer)"
+           Version="$(SetupVersion)"
+           UpgradeCode="246A3508-680E-421E-86B3-40864588477E"
+           Language="1033"
+           Scope="perMachine"
+           InstallerVersion="500">
+
+    <!-- A newer version replaces an older one; the same version replaces itself, so that a rebuilt package can be installed over
+         one of the same version. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed."
+                  AllowSameVersionUpgrades="yes" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Add or remove programs. -->
+    <Icon Id="AppIcon.ico" SourceFile="$(AppIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPHELPLINK" Value="$(HelpUrl)" />
+    <Property Id="ARPURLINFOABOUT" Value="$(HelpUrl)" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+
+    <Feature Id="Main" Title="$(ProgName)" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="AppFiles" />
+    </Feature>
+
+    <!-- The stock install-directory dialogs: welcome, licence (the MIT licence), folder, ready, progress, done. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+    <!-- Its pictures: the welcome and finish dialogs (493 x 312) and the banner of the inner ones (493 x 58). -->
+    <WixVariable Id="WixUIDialogBmp" Value="$(InstallerAssets)dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(InstallerAssets)banner.bmp" />
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <!-- WixUI_InstallDir does not include WiX's own progress and error texts. Without them the package has no ActionText and
+         Error tables, and Windows Installer falls back to its own strings, which on Windows 11 showed the raw template
+         "Copying new files File: [1], Directory: [9], Size: [6]" in the progress dialog. The status line now reads
+         "Copying new files" (the stock dialog shows the action's description, not the file names). -->
+    <UIRef Id="WixUI_ErrorProgressText" />
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="$(ProgName)" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <!-- The program, in a component of its own for its Start menu shortcut. -->
+      <Component Id="AppExe">
+        <File Id="PuTTY.App.exe" Source="$(AppPublishDir)PuTTY.App.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut"
+                    Directory="ProgramMenuFolder"
+                    Name="$(ProgName)"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="AppIcon.ico" />
+        </File>
+      </Component>
+
+      <!-- Everything else in the publish folder, with its sub-folders: the Windows App SDK files, the engine, the resources.
+           Debug symbols are not installed. (Paths are absolute: WiX 7 reads relative ones from the source path.) -->
+      <Files Include="$(AppPublishDir)**">
+        <Exclude Files="$(AppPublishDir)PuTTY.App.exe" />
+        <Exclude Files="$(AppPublishDir)**\*.pdb" />
+      </Files>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

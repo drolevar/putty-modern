@@ -1,0 +1,10 @@
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- What the package and the bundle both say about the product. SetupVersion comes from Version.props. -->
+  <?define ProgName="PuTTY Modern" ?>
+  <?define Manufacturer="Andrij Abyzov" ?>
+  <?define HelpUrl="https://github.com/drolevar/putty-modern" ?>
+  <?define LicenseUrl="https://github.com/drolevar/putty-modern/blob/main/LICENSE" ?>
+  <?ifndef SetupVersion ?>
+    <?define SetupVersion="0.0.0.0" ?>
+  <?endif ?>
+</Include>

@@ -1,0 +1,13 @@
+<Project>
+  <!-- The WiX extensions the installer uses, all at the version of the WiX SDK the projects name (WixToolset.Sdk/7.0.1 in each
+       .wixproj; the SDK version cannot come from a property). 7.0.2 was never published: 7.0.1 is the newest. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <WixToolsetVersion>7.0.1</WixToolsetVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="WixToolset.UI.wixext" Version="$(WixToolsetVersion)" />
+    <PackageVersion Include="WixToolset.Util.wixext" Version="$(WixToolsetVersion)" />
+    <PackageVersion Include="WixToolset.Bal.wixext" Version="$(WixToolsetVersion)" />
+  </ItemGroup>
+</Project>

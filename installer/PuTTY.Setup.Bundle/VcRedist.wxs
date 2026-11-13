@@ -1,0 +1,32 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <?include vc_redist.wxi ?>
+
+  <Fragment>
+    <!-- Which msvcp140.dll the machine has (the 64-bit one, in System32). -->
+    <util:FileSearch Id="VCRedistInstalled"
+                     Path="[System64Folder]msvcp140.dll"
+                     Result="version"
+                     Variable="VCRedistInstalled" />
+
+    <Variable Name="VCRedistRequired" Type="version" Value="$(VCRedistRequired)" />
+
+    <!-- The runtime is installed when the machine's is older than the one the engine was built with, and left alone otherwise
+         (it is shared with other programs: it is not removed when this one is). -->
+    <PackageGroup Id="VcRedist">
+      <ExePackage Id="vc_redist.x64.exe"
+                  Name="redist\vc_redist.x64.exe"
+                  SourceFile="$(VCRedistExe)"
+                  DisplayName="Microsoft Visual C++ $(VCRedistYear) Redistributable (x64) - $(VCRedistRequired)"
+                  Cache="remove" Compressed="yes" PerMachine="yes" Vital="yes" Permanent="yes" Protocol="burn"
+                  DetectCondition="VCRedistInstalled &gt;= VCRedistRequired"
+                  InstallArguments="/install /quiet /norestart"
+                  RepairArguments="/repair /quiet /norestart"
+                  UninstallArguments="/uninstall /quiet /norestart">
+        <ExitCode Value="0" Behavior="success" />
+        <ExitCode Value="3010" Behavior="forceReboot" />
+        <ExitCode Behavior="error" />
+      </ExePackage>
+    </PackageGroup>
+  </Fragment>
+</Wix>

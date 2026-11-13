@@ -1,0 +1,12 @@
+<Project>
+  <!-- The version the installer carries: SetupBaseVersion (three parts, raise it for a release) and a build number, which is
+       the GitHub Actions run number when the build runs there and 0 otherwise. Windows Installer compares only the first three
+       parts when it decides whether one package upgrades another, so the build number tells builds apart without changing what
+       upgrades what (the package allows same-version upgrades, so a newer build replaces an older one of the same version). -->
+  <PropertyGroup>
+    <SetupBaseVersion Condition="'$(SetupBaseVersion)' == ''">0.1.0</SetupBaseVersion>
+    <SetupBuildNumber Condition="'$(SetupBuildNumber)' == ''">$(GITHUB_RUN_NUMBER)</SetupBuildNumber>
+    <SetupBuildNumber Condition="'$(SetupBuildNumber)' == ''">0</SetupBuildNumber>
+    <SetupVersion>$(SetupBaseVersion).$(SetupBuildNumber)</SetupVersion>
+  </PropertyGroup>
+</Project>
