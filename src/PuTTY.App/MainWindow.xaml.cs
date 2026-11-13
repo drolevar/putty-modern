@@ -37,6 +37,11 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // The welcome tab is an empty state, or says why the engine could not start.
+        WelcomePanel.Visibility = ViewModel.EngineAvailable ? Visibility.Visible : Visibility.Collapsed;
+        EngineProblemText.Text = ViewModel.EngineProblem;
+        EngineProblemText.Visibility = ViewModel.EngineAvailable ? Visibility.Collapsed : Visibility.Visible;
+
         sessions = new SessionListController(SessionsHost);
         sessions.OpenRequested += OpenSaved;
         sessions.NewRequested += () => OpenSettings(null);
@@ -326,6 +331,9 @@ public sealed partial class MainWindow : Window
     }
 
     // ----- The workspace that comes back ------------------------------------------------------------
+
+    /// <summary>The New session button of the empty state: the same as the one in the command bar.</summary>
+    private void OnWelcomeNewSession(object sender, RoutedEventArgs e) => OpenSettings(null);
 
     /// <summary>
     /// A test hook (see <see cref="TestRegistry.LogFloodVariable"/>): feeds the Connection log a very large number of lines, in

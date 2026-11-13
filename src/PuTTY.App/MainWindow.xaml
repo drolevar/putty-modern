@@ -48,11 +48,40 @@
                         <docking:DocumentContainer>
                             <docking:DocumentWindow x:Name="TerminalDocument" Title="Terminal" SerializationId="doc.terminal">
                                 <!-- The terminal view is attached to this control in code (TerminalViewController);
-                                     until a session is shown it holds the engine status. -->
+                                     until a session is shown it holds the empty state below (or, when the engine
+                                     could not start, the reason). -->
                                 <UserControl x:Name="TerminalHost"
                                              HorizontalContentAlignment="Stretch"
                                              VerticalContentAlignment="Stretch">
-                                    <TextBlock Margin="12" Text="{x:Bind ViewModel.EngineStatus, Mode=OneWay}" />
+                                    <Grid>
+                                        <StackPanel x:Name="WelcomePanel"
+                                                    MaxWidth="420"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center"
+                                                    Spacing="8">
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       AutomationProperties.AutomationId="WelcomeTitle"
+                                                       Style="{StaticResource SubtitleTextBlockStyle}"
+                                                       Text="No session open" />
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       Text="Open a saved session from the Sessions panel, or start a new one."
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap" />
+                                            <Button x:Name="WelcomeNewSession"
+                                                    Margin="0,8,0,0"
+                                                    HorizontalAlignment="Center"
+                                                    AutomationProperties.AutomationId="WelcomeNewSession"
+                                                    Click="OnWelcomeNewSession"
+                                                    Content="New session"
+                                                    Style="{StaticResource AccentButtonStyle}" />
+                                        </StackPanel>
+                                        <TextBlock x:Name="EngineProblemText"
+                                                   Margin="12"
+                                                   AutomationProperties.AutomationId="EngineProblem"
+                                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                                   TextWrapping="Wrap" />
+                                    </Grid>
                                 </UserControl>
                             </docking:DocumentWindow>
                         </docking:DocumentContainer>
