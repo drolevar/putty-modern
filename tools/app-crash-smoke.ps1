@@ -37,12 +37,14 @@ function Wait-Element($selector, $seconds = 30, [string[]] $Extra = @()) {
     }
     return $false
 }
+# Opens a saved session from its context menu (a right click on its row, then Open): the Sessions panel has no Open button.
+# The menu appears a moment after the click, so try again for a few seconds.
 function Open-Session($name) {
-    [void](Ui @('invoke', "Session:$name"))
+    [void](Ui @('click', "Session:$name", '--right'))
     for ($i = 0; $i -lt 20; $i++) {
-        try { [void](Ui @('invoke', 'OpenSessionButton')); return } catch { Start-Sleep -Milliseconds 500 }
+        try { [void](Ui @('invoke', 'Open', '--type', 'MenuItem')); return } catch { Start-Sleep -Milliseconds 500 }
     }
-    [void](Ui @('invoke', 'OpenSessionButton'))
+    [void](Ui @('invoke', 'Open', '--type', 'MenuItem'))
 }
 
 $leaf = "e2e-crash-$([guid]::NewGuid().ToString('N'))"

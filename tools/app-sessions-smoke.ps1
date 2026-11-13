@@ -42,6 +42,16 @@ function Wait-Element($selector, $seconds = 30, [string[]] $Extra = @()) {
     return $false
 }
 
+# Opens a saved session from its context menu (a right click on its row, then Open): the Sessions panel has no Open button.
+# The menu appears a moment after the click, so try again for a few seconds.
+function Open-Session($name) {
+    [void](Ui @('click', "Session:$name", '--right'))
+    for ($i = 0; $i -lt 20; $i++) {
+        try { [void](Ui @('invoke', 'Open', '--type', 'MenuItem')); return } catch { Start-Sleep -Milliseconds 500 }
+    }
+    [void](Ui @('invoke', 'Open', '--type', 'MenuItem'))
+}
+
 Add-Type -TypeDefinition @'
 using System;
 using System.Drawing;
@@ -192,9 +202,8 @@ try {
     Check 'the folder is gone' ((Ui @('search', 'Folder:Lab2')) -match 'Found 0')
     Check 'its session is at the top again, in the file and on screen' ($null -eq (Read-Workspace).sessions.'e2e beta'.folderId -and (Ui @('search', 'Session:e2e beta')) -match 'Found [1-9]')
 
-    # --- open alpha: select it, press Open
-    [void](Ui @('invoke', 'Session:e2e alpha'))
-    [void](Ui @('invoke', 'OpenSessionButton'))
+    # --- open alpha from its context menu
+    Open-Session 'e2e alpha'
     $accept = $alpha.AcceptTcpClientAsync()
     Check 'opening a saved session connects to its saved host and port' ($accept.Wait(20000))
     if ($accept.IsCompleted) {
@@ -244,8 +253,7 @@ try {
 
         $alphaClient = $accept.Result
         function Is-Closed($client) { $client.Client.Poll(300000, [System.Net.Sockets.SelectMode]::SelectRead) -and $client.Client.Available -eq 0 }
-        [void](Ui @('invoke', 'Session:e2e beta'))
-        [void](Ui @('invoke', 'OpenSessionButton'))
+        Open-Session 'e2e beta'
         $acceptBeta = $beta.AcceptTcpClientAsync()
         Check 'the second session connects' ($acceptBeta.Wait(20000))
         Check 'opening a second session while one is connected does not ask anything' ((Ui @('search', 'Close and open')) -match 'Found 0')

@@ -2,7 +2,7 @@
 .SYNOPSIS
   End-to-end check of the settings window in the real app: it shows PuTTY's configuration box, edits reach
   PuTTY's handlers, Save writes a session into PuTTY's storage, Open starts a session with what was typed,
-  and Edit shows a saved session's settings.
+  and its context menu shows a saved session's settings.
 
 .DESCRIPTION
   Safe on a developer desktop: no key or mouse is injected (UI Automation patterns only), and the user's real
@@ -89,8 +89,8 @@ try {
     $env:PUTTYMODERN_TEST_REGISTRY_ROOT = $null
 
     # --- the window and PuTTY's pages
-    Check 'the panel offers New' (Wait-Element 'NewSessionButton')
-    [void](Ui @('invoke', 'NewSessionButton'))
+    Check 'the command bar offers New session' (Wait-Element 'CommandNewSession')
+    [void](Ui @('invoke', 'CommandNewSession'))
     Check "the settings window shows PuTTY's pages" (Wait-Element 'SettingsPages')
     # The pages are a tree: the top level and the open branch (Session, with Logging) are in view.
     foreach ($page in 'Session', 'Logging', 'Terminal', 'Window', 'Connection') {
@@ -148,19 +148,14 @@ try {
     while ((Get-Date) -lt $deadline -and -not ((Server-Events) -contains '{"event":"shell"}')) { Start-Sleep -Milliseconds 300 }
     Check 'the server started a shell: the session ran with the edited settings' ((Server-Events) -contains '{"event":"shell"}') "($((Server-Events) -join ' '))"
 
-    # --- the session that was saved shows up in the panel; Edit shows a saved session's settings
+    # --- the session that was saved shows up in the panel; its context menu shows a saved session's settings
     # (The document tab is also called "e2e created", so look for the list entry, a ListItem.)
     Check 'the session saved from the dialog is in the panel' (Wait-Element 'e2e created' 15 @('--type', 'ListItem'))
-    # Select the saved session and wait for Edit to enable; selecting again if the list was refilled meanwhile.
-    $enabled = $false
-    for ($attempt = 0; $attempt -lt 5 -and -not $enabled; $attempt++) {
-        [void](Ui @('invoke', 'e2e saved'))
-        Start-Sleep -Milliseconds 700
-        $enabled = (Ui @('get-property', 'SessionSettingsButton')) -match 'IsEnabled:\s*True'
-    }
-    Check 'selecting a saved session enables Edit' $enabled
-    [void](Ui @('invoke', 'SessionSettingsButton'))
-    Check 'Edit opens the settings window' (Wait-Element 'SettingsPages' 15)
+    # The saved session's context menu has its settings (the panel has no Edit button).
+    [void](Ui @('click', 'Session:e2e saved', '--right'))
+    Check 'a right click on a saved session offers its settings' (Wait-Element 'Settings...' 10 @('--type', 'MenuItem'))
+    [void](Ui @('invoke', 'Settings...', '--type', 'MenuItem'))
+    Check 'Settings... opens the settings window' (Wait-Element 'SettingsPages' 15)
     $deadline = (Get-Date).AddSeconds(10)
     $hostShown = ''
     while ((Get-Date) -lt $deadline -and $hostShown -notmatch 'saved.example.org') {

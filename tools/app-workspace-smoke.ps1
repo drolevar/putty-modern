@@ -41,14 +41,14 @@ function Wait-Element($selector, $seconds = 30, [string[]] $Extra = @()) {
     }
     return $false
 }
-# Selects a saved session and presses Open. The button is enabled a moment after the selection (slower still with a
-# debugger attached), and UI Automation refuses to press a disabled one, so try again for a few seconds.
+# Opens a saved session from its context menu (a right click on its row, then Open): the Sessions panel has no Open button.
+# The menu appears a moment after the click, so try again for a few seconds.
 function Open-Session($name) {
-    [void](Ui @('invoke', "Session:$name"))
+    [void](Ui @('click', "Session:$name", '--right'))
     for ($i = 0; $i -lt 20; $i++) {
-        try { [void](Ui @('invoke', 'OpenSessionButton')); return } catch { Start-Sleep -Milliseconds 500 }
+        try { [void](Ui @('invoke', 'Open', '--type', 'MenuItem')); return } catch { Start-Sleep -Milliseconds 500 }
     }
-    [void](Ui @('invoke', 'OpenSessionButton'))
+    [void](Ui @('invoke', 'Open', '--type', 'MenuItem'))
 }
 function Is-Closed($client) { $client.Client.Poll(300000, [System.Net.Sockets.SelectMode]::SelectRead) -and $client.Client.Available -eq 0 }
 

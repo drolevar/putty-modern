@@ -34,9 +34,6 @@ internal sealed class SessionListController
     /// <summary>The AutomationIds, for UI Automation checks (tools/app-sessions-smoke.ps1).</summary>
     public const string SearchId = "SessionSearch";
     public const string ListId = "SessionList";
-    public const string OpenId = "OpenSessionButton";
-    public const string NewId = "NewSessionButton";
-    public const string EditId = "SessionSettingsButton";
     public const string AddId = "AddToSessionsButton";
     public const string RecentId = "RecentSessions";
     public const string FolderNameId = "FolderNameBox";
@@ -63,9 +60,6 @@ internal sealed class SessionListController
     private readonly ListView list = new();
     private readonly ListView recent = new();
     private readonly StackPanel recentSection = new();
-    private readonly Button open = new();
-    private readonly Button create = new();
-    private readonly Button edit = new();
     private readonly Button add = new();
     private readonly MenuFlyoutItem newFolder = new();
     private readonly TextBlock status = new();
@@ -76,7 +70,6 @@ internal sealed class SessionListController
     private readonly HashSet<string> collapsed = new(StringComparer.Ordinal);      // folder ids the user closed
     private readonly Dictionary<string, SavedSessionSummary> summaries = new(StringComparer.Ordinal);
     private string[] all = [];     // an array, not IReadOnlyList: CsWinRT rejects a collection expression for that (CsWinRT1032)
-    private bool rebuilding;
 
     public SessionListController(UserControl host)
     {
@@ -91,7 +84,6 @@ internal sealed class SessionListController
         list.IsDoubleTapEnabled = true;
         list.DoubleTapped += (_, _) => ActivateSelected();
         list.KeyDown += OnListKeyDown;
-        list.SelectionChanged += (_, _) => { if (!rebuilding) { UpdateButtons(); } };
         AutomationProperties.SetAutomationId(list, ListId);
         AutomationProperties.SetName(list, "Saved sessions");
 
@@ -108,30 +100,9 @@ internal sealed class SessionListController
         AutomationProperties.SetAutomationId(recent, RecentId);
         AutomationProperties.SetName(recent, "Recent sessions");
 
-        open.Content = "Open";
-        open.IsEnabled = false;
-        open.Click += (_, _) => OpenSelected();
-        AutomationProperties.SetAutomationId(open, OpenId);
-        AutomationProperties.SetName(open, "Open saved session");      // the settings window has an "Open session" of its own
-
-        create.Content = "New...";
-        create.Click += (_, _) => NewRequested?.Invoke();
-        AutomationProperties.SetAutomationId(create, NewId);
-
-        edit.Content = "Edit...";
-        edit.IsEnabled = false;
-        edit.Click += (_, _) => { if (Selected() is { Kind: Kind.Session } entry) { EditRequested?.Invoke(entry.Name); } };
-        AutomationProperties.SetAutomationId(edit, EditId);
-        AutomationProperties.SetName(edit, "Session settings");
-
         status.Opacity = 0.7;
         status.VerticalAlignment = VerticalAlignment.Center;
         status.TextTrimming = TextTrimming.CharacterEllipsis;
-
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(create);
-        buttons.Children.Add(edit);
-        buttons.Children.Add(open);
 
         // "SAVED SESSIONS" and the plus that adds to it
         var caption = new TextBlock { Text = "SAVED SESSIONS", FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 0) };
@@ -172,7 +143,7 @@ internal sealed class SessionListController
         recentSection.Children.Add(recent);
 
         var layout = new Grid { Margin = new Thickness(12) };
-        for (int row = 0; row < 6; row++)
+        for (int row = 0; row < 5; row++)
         {
             layout.RowDefinitions.Add(new RowDefinition { Height = row == 2 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
         }
@@ -187,8 +158,6 @@ internal sealed class SessionListController
         Grid.SetRow(status, 4);
         status.Margin = new Thickness(0, 8, 0, 4);
         layout.Children.Add(status);
-        Grid.SetRow(buttons, 5);
-        layout.Children.Add(buttons);
         host.Content = layout;
     }
 
@@ -270,57 +239,45 @@ internal sealed class SessionListController
         return index >= 0 && index < rows.Count && entries.TryGetValue(rows[index], out Entry? entry) ? entry : null;
     }
 
-    private void UpdateButtons() => open.IsEnabled = edit.IsEnabled = Selected()?.Kind == Kind.Session;
-
     private void RebuildRows(bool selectFirst)
     {
         Entry? keep = Selected();
-        rebuilding = true;
-        try
-        {
-            list.Items.Clear();
-            rows.Clear();
-            entries.Clear();
+        list.Items.Clear();
+        rows.Clear();
+        entries.Clear();
 
-            string text = search.Text.Trim();
-            if (text.Length == 0)
+        string text = search.Text.Trim();
+        if (text.Length == 0)
+        {
+            AddLevel(metadata.BuildTree(all), depth: 0);
+        }
+        else
+        {
+            // Searching flattens: the sessions whose name, host or folder matches, with no folders to open first.
+            foreach (string name in all)
             {
-                AddLevel(metadata.BuildTree(all), depth: 0);
-            }
-            else
-            {
-                // Searching flattens: the sessions whose name, host or folder matches, with no folders to open first.
-                foreach (string name in all)
+                string folder = FolderPathOf(name);
+                summaries.TryGetValue(name, out SavedSessionSummary? summary);
+                if (name.Contains(text, StringComparison.CurrentCultureIgnoreCase)
+                    || (summary?.Host.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false)
+                    || folder.Contains(text, StringComparison.CurrentCultureIgnoreCase))
                 {
-                    string folder = FolderPathOf(name);
-                    summaries.TryGetValue(name, out SavedSessionSummary? summary);
-                    if (name.Contains(text, StringComparison.CurrentCultureIgnoreCase)
-                        || (summary?.Host.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false)
-                        || folder.Contains(text, StringComparison.CurrentCultureIgnoreCase))
-                    {
-                        string? detail = summary?.Description;
-                        AddSession(name, depth: 0, indentForChevron: false, folder.Length == 0 ? detail : $"{detail} · {folder}");
-                    }
+                    string? detail = summary?.Description;
+                    AddSession(name, depth: 0, indentForChevron: false, folder.Length == 0 ? detail : $"{detail} · {folder}");
                 }
             }
-
-            int target = keep is null ? -1 : rows.FindIndex(row => entries[row] == keep);
-            if (target < 0 && selectFirst)
-            {
-                target = rows.FindIndex(row => entries[row].Kind == Kind.Session);    // typing narrows the list to the one you mean: Enter opens it
-            }
-
-            if (target >= 0)
-            {
-                list.SelectedIndex = target;
-            }
         }
-        finally
+
+        int target = keep is null ? -1 : rows.FindIndex(row => entries[row] == keep);
+        if (target < 0 && selectFirst)
         {
-            rebuilding = false;
+            target = rows.FindIndex(row => entries[row].Kind == Kind.Session);    // typing narrows the list to the one you mean: Enter opens it
         }
 
-        UpdateButtons();
+        if (target >= 0)
+        {
+            list.SelectedIndex = target;
+        }
     }
 
     /// <summary>The folders under <paramref name="node"/> (each with what is in it, if open), then its sessions.</summary>
