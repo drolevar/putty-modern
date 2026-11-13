@@ -30,7 +30,7 @@
         <!-- The session command bar of the sketch; built in code (CommandBarController). -->
         <UserControl x:Name="CommandBarHost" Grid.Row="1" HorizontalContentAlignment="Stretch" />
 
-        <docking:DockSite x:Name="DockSite" Grid.Row="2">
+        <docking:DockSite x:Name="DockSite" Grid.Row="2" AutoHideStripPlacement="InPlace">
             <docking:SplitContainer Orientation="Horizontal">
 
                 <docking:ToolWindowContainer docking:DockSite.RelativeSize="0.2">

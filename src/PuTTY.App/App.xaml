@@ -8,6 +8,11 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- The docking library's auto-hide strip (where a collapsed panel's tab sits) spans the whole width of the
+                 window, not just the area its panel was docked in; with no background of its own only the tab shows,
+                 where the panel was (docs/theming.md of the library: a key declared directly here wins in every theme). -->
+            <SolidColorBrush x:Key="DockingAutoHideTabStripBackgroundBrush" Color="Transparent" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
