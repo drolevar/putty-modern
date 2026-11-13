@@ -75,6 +75,7 @@ public sealed partial class MainWindow : Window
             CollapseDefaultPanels();        // a fresh start has Session details and the Connection log as tabs at the edge
             CaptureDefaultLayout();         // the built-in Default, with them so; a saved layout changes them afterwards
             RestoreWorkspace();
+            FloodLogForTest();
         };
         AppWindow.Closing += (_, _) => SaveWorkspace();
         DockSite.WindowActivated += (_, e) =>
@@ -325,6 +326,40 @@ public sealed partial class MainWindow : Window
     }
 
     // ----- The workspace that comes back ------------------------------------------------------------
+
+    /// <summary>
+    /// A test hook (see <see cref="TestRegistry.LogFloodVariable"/>): feeds the Connection log a very large number of lines, in
+    /// bursts, and says in the diagnostic log how long it took.
+    /// </summary>
+    private void FloodLogForTest()
+    {
+        if (!TestRegistry.IsActive
+            || !int.TryParse(Environment.GetEnvironmentVariable(TestRegistry.LogFloodVariable), out int total)
+            || total <= 0)
+        {
+            return;
+        }
+
+        int sent = 0;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Microsoft.UI.Dispatching.DispatcherQueueTimer timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(10);
+        timer.IsRepeating = true;
+        timer.Tick += (_, _) =>
+        {
+            for (int i = 0; i < 2000 && sent < total; i++, sent++)
+            {
+                log.Add(sent % 2 == 0 ? "flood alpha: a session with a rather long name" : "flood beta", $"Line {sent}: a message long enough to be cut off at the right edge of the panel when it is narrow");
+            }
+
+            if (sent >= total)
+            {
+                timer.Stop();
+                PuttyLog.Info("app", $"The connection log was fed {total} lines in {watch.ElapsedMilliseconds} ms");
+            }
+        };
+        timer.Start();
+    }
 
     /// <summary>
     /// Saves how the panels and document groups are laid out, and which session was open in which document, for the

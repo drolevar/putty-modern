@@ -26,6 +26,13 @@ internal static partial class TestRegistry
     /// </summary>
     public const string CollapsedPanelsVariable = "PUTTYMODERN_TEST_COLLAPSED_PANELS";
 
+    /// <summary>
+    /// With the test hook active, <c>PUTTYMODERN_TEST_LOG_FLOOD=&lt;lines&gt;</c> feeds the Connection log that many lines after the
+    /// window is up, two thousand every ten milliseconds (so the log's own timer runs in between, as it does for a session that
+    /// talks a lot), and writes how long it took to the diagnostic log. For trying the log with a very large number of lines.
+    /// </summary>
+    public const string LogFloodVariable = "PUTTYMODERN_TEST_LOG_FLOOD";
+
     /// <summary>Where the workspace file lives when the test hook is active; null in normal use.</summary>
     public static string? WorkspaceFileOverride { get; private set; }
 

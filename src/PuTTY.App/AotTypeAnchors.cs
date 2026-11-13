@@ -23,7 +23,8 @@ namespace PuTTY.App;
 /// content, the glyphs and the Close buttons were right.
 /// </para>
 /// <para>
-/// What is left is the app's own cast of a resource it looks up (<c>AccentButtonStyle</c>) to <c>Style</c>. List here
+/// What is left is the app's own cast of a resource it looks up (<c>AccentButtonStyle</c>) to <c>Style</c>, and the cast of what
+/// <c>XamlReader.Load</c> returns for the Connection log's row template to <c>DataTemplate</c>. List here
 /// every WinUI class that the app's own code casts to but never constructs, and check a new one the way CLAUDE.md
 /// (section NativeAOT) describes: load it with <c>XamlReader</c> and look at <c>GetType()</c>.
 /// </para>
@@ -42,5 +43,6 @@ internal static class AotTypeAnchors
 
         touched = true;
         _ = new Style();
+        _ = new DataTemplate();
     }
 }
