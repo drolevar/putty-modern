@@ -19,6 +19,50 @@ function Focus-Terminal {
     Start-Sleep -Milliseconds 800
 }
 
+# Brings the app's main window to the front. In the Sandbox the app is started by `wsb exec`, which Windows does not let
+# take the foreground, and winapp refuses to click on a window that is not in front (the same reason as Focus-Terminal), so a
+# check whose first action is a click (a right click on a session in the panel) calls this first. On a desktop where the app
+# is in front already it changes nothing. It uses what worked in the IME check: share the input queue of the window that has
+# the foreground, then SetForegroundWindow and SwitchToThisWindow. The window's size and state stay as they are.
+function Bring-AppToFront {
+    if (-not ('SmokeForeground' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class SmokeForeground
+{
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int command);
+    [DllImport("user32.dll")] private static extern void SwitchToThisWindow(IntPtr hwnd, bool altTab);
+
+    public static void Raise(IntPtr hwnd)
+    {
+        ShowWindow(hwnd, 5);          // SW_SHOW: a visible window stays as it is
+        uint ignored;
+        uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out ignored);
+        uint thisThread = GetCurrentThreadId();
+        if (foregroundThread != 0 && foregroundThread != thisThread) { AttachThreadInput(thisThread, foregroundThread, true); }
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
+        if (foregroundThread != 0 && foregroundThread != thisThread) { AttachThreadInput(thisThread, foregroundThread, false); }
+        SwitchToThisWindow(hwnd, true);
+    }
+}
+'@
+    }
+    $process = Get-Process -Name 'PuTTY.App' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($process) {
+        $process.Refresh()
+        if ($process.MainWindowHandle -ne [IntPtr]::Zero) { [SmokeForeground]::Raise($process.MainWindowHandle) }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
 # With -AttachDebugger on tools\run-in-sandbox.ps1 (PUTTYMODERN_DEBUG_CDB=1 in the guest) this attaches cdb
 # (C:\debugger\cdb.exe, tools\sandbox\install-debugger.ps1) to a process the script has just started. The
 # commands in tools\sandbox\cdb-crash-commands.txt write the stacks of an unhandled crash to

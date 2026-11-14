@@ -35,9 +35,11 @@ function Wait-Element($selector, $seconds = 30, [string[]] $Extra = @()) {
     return $false
 }
 
+. (Join-Path $PSScriptRoot 'smoke-common.ps1')       # Bring-AppToFront
 # Opens a saved session from its context menu (a right click on its row, then Open): the Sessions panel has no Open button.
 # The menu appears a moment after the click, so try again for a few seconds.
 function Open-Session($name) {
+    Bring-AppToFront       # winapp refuses to right-click a window that is not in front (tools\smoke-common.ps1)
     [void](Ui @('click', "Session:$name", '--right'))
     for ($i = 0; $i -lt 20; $i++) {
         try { [void](Ui @('invoke', 'Open', '--type', 'MenuItem')); return } catch { Start-Sleep -Milliseconds 500 }
