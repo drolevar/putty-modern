@@ -21,6 +21,9 @@
   </ItemGroup>
 
   <Target Name="PublishApp" BeforeTargets="PrepareForBuild" Condition="'$(PublishApp)' == 'true'">
+    <!-- dotnet publish does not clear its output folder, and the package packs everything in it: files of an older build (the 292
+         of the first one, with the AI and ML components) would be installed too. The folder is rebuilt from nothing. -->
+    <RemoveDir Directories="$(RepoRoot)artifacts\publish\PuTTY.App\release_win-x64" />
     <Message Importance="high" Text="Publishing PuTTY.App (NativeAOT, win-x64) for the package ..." />
     <Exec Command="dotnet publish &quot;$(RepoRoot)src\PuTTY.App&quot; -c Release -r win-x64" WorkingDirectory="$(RepoRoot)" />
   </Target>
