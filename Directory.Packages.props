@@ -5,10 +5,26 @@
     <!-- Lets a PackageVersion below force the version of a transitive dependency
          (needed to hold Microsoft.Windows.SDK.BuildTools.MSIX at a fixed build). -->
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <!-- The Windows App SDK release: the component packages below are versioned together with it. The one exception is
+         Microsoft.Windows.AI.MachineLearning, which has a version of its own (the one the ML component asks for: check it when the SDK version changes). -->
+    <WindowsAppSdkVersion>2.6.5</WindowsAppSdkVersion>
   </PropertyGroup>
 
   <ItemGroup Label="WinUI app">
-    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.WinUI" Version="$(WindowsAppSdkVersion)" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Runtime" Version="$(WindowsAppSdkVersion)" />
+    <!-- Components of the metapackage that the app takes out (ExcludeAssets in PuTTY.App.csproj); the pin keeps each at the
+         version the metapackage asks for. -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK.AI" Version="$(WindowsAppSdkVersion)" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.ML" Version="$(WindowsAppSdkVersion)" />
+    <PackageVersion Include="Microsoft.Windows.AI.MachineLearning" Version="2.4.89" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Search" Version="$(WindowsAppSdkVersion)" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Widgets" Version="$(WindowsAppSdkVersion)" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.DWrite" Version="$(WindowsAppSdkVersion)" />
+    <!-- Not referenced by the app, but Digi21.WinUI.Docking depends on the metapackage (1.8.251106002, build assets excluded):
+         this entry raises that transitive dependency to WindowsAppSdkVersion (transitive pinning, above), so that no 1.8 components are
+         restored beside the 2.6.5 ones. -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="$(WindowsAppSdkVersion)" />
     <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
     <!-- NativeAOT publish needs >= 1.7.260930100 (WindowsAppSDK issue 6394 fixed there).
          Windows App SDK 2.6.5 pulls 1.7.251221100 transitively, which predates the fix, so

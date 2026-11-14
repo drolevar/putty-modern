@@ -28,7 +28,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <!-- The Windows App SDK by its WinUI component, not the Microsoft.WindowsAppSDK metapackage: the metapackage adds the AI,
+         ML (ONNX Runtime, DirectML), Search, Widgets and DWriteCore components, about 60 MiB the app never uses. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" />
+    <!-- Digi21.WinUI.Docking depends on the whole metapackage, and its components come back through that dependency (the
+         package's "exclude build" covers the metapackage only, not what it pulls in). A direct reference with ExcludeAssets
+         takes a component out: its build targets no longer add its files to the output. ML brings ONNX Runtime and DirectML. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.AI" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.ML" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.Windows.AI.MachineLearning" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Search" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Widgets" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" ExcludeAssets="all" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="Digi21.WinUI.Docking" />
@@ -43,6 +55,43 @@
        classes only from its control templates and casts to them. AotTypeAnchors.cs keeps those classes
        known to the WinRT projection; it replaces the DockSite trimmer root this project used to carry,
        which fixed one symptom by accident and left others (the Close buttons) broken. -->
+
+  <!-- Only English in the Windows App SDK's native resources. The self-contained targets copy a folder of .mui files for each of
+       86 languages (170 of the 172 files, 3.3 MiB, are not en-US); the app is English only. en-US is the fallback of those
+       files and stays. This uses the item the SDK's own target removes from its list before it adds the files to the output
+       (MicrosoftWindowsAppSDKFilesExcluded in Microsoft.WindowsAppSDK.SelfContained.targets, Windows App SDK 2.6.5): it is not
+       a documented setting, so look here first if an SDK update puts the language folders back. -->
+  <Target Name="ExcludeNonEnglishWindowsAppSdkMui"
+          BeforeTargets="AddMicrosoftWindowsAppSDKPayloadFilesFromComponents"
+          DependsOnTargets="GetWindowsAppSDKNativePlatform"
+          Condition="'$(WindowsAppSDKSelfContained)' == 'true'">
+    <ItemGroup>
+      <_AllWindowsAppSdkMui Include="%(WindowsAppSdkComponentPackages.Identity)runtimes-framework\win-$(NativePlatform)\native\**\*.mui" />
+      <_KeepWindowsAppSdkMui Include="%(WindowsAppSdkComponentPackages.Identity)runtimes-framework\win-$(NativePlatform)\native\en-us\*.mui" />
+      <MicrosoftWindowsAppSDKFilesExcluded Include="@(_AllWindowsAppSdkMui)" Exclude="@(_KeepWindowsAppSdkMui)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Eight more files of the self-contained Windows App SDK that the app never uses, left out of the publish folder (each file is
+       a component in the MSI, so the count matters beyond its size). They were never loaded in a run of all the end-to-end
+       checks: WebView2 (the app has no WebView2 control; the browser itself is the machine's), the bootstrapper (only a
+       framework-dependent app starts through it), the display and design-time helpers, background tasks, push notifications
+       and the restart helper. Their registrations stay in the app manifest, which matters only to code that activates those
+       classes. If a feature needs one, take it out of this list. The publish list is what the MSI packs; the build output
+       keeps the files. -->
+  <PropertyGroup>
+    <UnusedRuntimeFilesForPublish>;Microsoft.Web.WebView2.Core.dll;WebView2Loader.dll;Microsoft.WindowsAppRuntime.Bootstrap.dll;Microsoft.Graphics.Display.dll;Microsoft.UI.Designer.dll;Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.dll;PushNotificationsLongRunningTask.ProxyStub.dll;RestartAgent.exe;</UnusedRuntimeFilesForPublish>
+  </PropertyGroup>
+  <Target Name="DropUnusedRuntimeFilesFromPublish"
+          AfterTargets="ComputeFilesToPublish"
+          BeforeTargets="_ComputeResolvedFilesToPublishTypes"
+          Condition="'$(WindowsAppSDKSelfContained)' == 'true'">
+    <ItemGroup>
+      <_UnusedPublishItem Include="@(ResolvedFileToPublish)" Condition="$(UnusedRuntimeFilesForPublish.Contains(';%(Filename)%(Extension);'))" />
+      <ResolvedFileToPublish Remove="@(_UnusedPublishItem)" />
+    </ItemGroup>
+    <Message Importance="high" Text="Left out of the publish folder: @(_UnusedPublishItem->'%(Filename)%(Extension)', ', ')" />
+  </Target>
 
   <!-- Builds the native engine first and ships puttyengine.dll next to the app (build and
        publish output). -->
