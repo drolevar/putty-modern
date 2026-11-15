@@ -9,6 +9,12 @@
     <AppPublishDir Condition="'$(AppPublishDir)' == ''">$(RepoRoot)artifacts\publish\PuTTY.App\release_win-x64\</AppPublishDir>
     <PublishApp Condition="'$(PublishApp)' == ''">true</PublishApp>
     <DefineConstants>$(DefineConstants);AppPublishDir=$(AppPublishDir);AppIcon=$(RepoRoot)src\PuTTY.App\Assets\AppIcon.ico;LicenseRtf=$(MSBuildThisFileDirectory)License.rtf</DefineConstants>
+
+    <!-- ICE61 warns that the package may "remove only older versions of itself": MajorUpgrade AllowSameVersionUpgrades makes the
+         maximum version of the upgrade inclusive, on purpose, so that a rebuilt package of the same version (every local build is
+         0.1.0.0; CI's differ by the run number) replaces the one installed. ICE69 warns that the shortcut (in a component of its
+         own, see Package.wxs) points at a file of another component: both are in the one feature, which is what ICE69 asks for. -->
+    <SuppressIces>ICE61;ICE69</SuppressIces>
   </PropertyGroup>
 
   <ItemGroup>

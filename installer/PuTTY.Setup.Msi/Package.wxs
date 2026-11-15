@@ -50,15 +50,21 @@
 
   <Fragment>
     <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
-      <!-- The program, in a component of its own for its Start menu shortcut. -->
       <Component Id="AppExe">
-        <File Id="PuTTY.App.exe" Source="$(AppPublishDir)PuTTY.App.exe" KeyPath="yes">
-          <Shortcut Id="StartMenuShortcut"
-                    Directory="ProgramMenuFolder"
-                    Name="$(ProgName)"
-                    WorkingDirectory="INSTALLFOLDER"
-                    Icon="AppIcon.ico" />
-        </File>
+        <File Id="PuTTY.App.exe" Source="$(AppPublishDir)PuTTY.App.exe" KeyPath="yes" />
+      </Component>
+
+      <!-- The Start menu shortcut (all users: the package is per machine) in a component of its own, whose key path is a registry
+           value under HKCU. Windows Installer's own validation (ICE43) wants that for a shortcut that is not advertised, and ICE57
+           does not allow the program's component to hold it (a per-machine key path, a file, with per-user data). Both errors
+           were found by CI, which validates; a build that is not elevated skips the validation (WIX1105). -->
+      <Component Id="AppShortcut" Directory="ProgramMenuFolder">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="$(ProgName)"
+                  Target="[#PuTTY.App.exe]"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon.ico" />
+        <RegistryValue Root="HKCU" Key="Software\$(ProgName)" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
 
       <!-- Everything else in the publish folder, with its sub-folders: the Windows App SDK files, the engine, the resources.
