@@ -10,6 +10,8 @@
 
     Writes:
       src\PuTTY.App\Assets\AppIcon.ico       the app, its window, the Start menu shortcut, Add or remove programs
+      src\PuTTY.App\Assets\TitleBarIcon.png  64 x 64, embedded in the exe for the title bars (the TitleBar control draws
+                                             an image of its own; AppIcon.cs gives the window itself the exe's icon)
       installer\Assets\dialog.bmp            493 x 312, the welcome and finish dialogs (the picture on the left 164 px)
       installer\Assets\banner.bmp            493 x 58, the top of the inner dialogs
       installer\Assets\logo.png              64 x 64, the setup program's window
@@ -19,13 +21,15 @@
 #>
 param(
     [string] $IconPath = (Join-Path $PSScriptRoot '..\src\PuTTY.App\Assets\AppIcon.ico'),
+    [string] $TitleBarIconPath = (Join-Path $PSScriptRoot '..\src\PuTTY.App\Assets\TitleBarIcon.png'),
     [string] $InstallerAssetsDir = (Join-Path $PSScriptRoot '..\installer\Assets')
 )
 Add-Type -AssemblyName System.Drawing
 $ErrorActionPreference = 'Stop'
 $IconPath = [System.IO.Path]::GetFullPath($IconPath)
+$TitleBarIconPath = [System.IO.Path]::GetFullPath($TitleBarIconPath)
 $InstallerAssetsDir = [System.IO.Path]::GetFullPath($InstallerAssetsDir)
-New-Item -ItemType Directory -Force -Path (Split-Path $IconPath), $InstallerAssetsDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Split-Path $IconPath), (Split-Path $TitleBarIconPath), $InstallerAssetsDir | Out-Null
 
 # ---- helpers ---------------------------------------------------------------------------------------------------------
 function C([string] $hex, [int] $a = 255) { [System.Drawing.Color]::FromArgb($a, [System.Drawing.ColorTranslator]::FromHtml($hex)) }
@@ -242,6 +246,12 @@ function Save-Bmp24($bitmap, [string] $path) {
 
 Save-Ico $IconPath
 "wrote $IconPath"
+
+# the title bars' icon: 64 px covers a 16 DIP slot up to 400% scaling; it is embedded in the exe, so no file is installed for it
+$titleIcon = Render-Icon 64
+$titleIcon.Save($TitleBarIconPath, [System.Drawing.Imaging.ImageFormat]::Png)
+$titleIcon.Dispose()
+"wrote $TitleBarIconPath"
 
 $icon = Render-Icon 256
 $vis = Visible-Bounds $icon

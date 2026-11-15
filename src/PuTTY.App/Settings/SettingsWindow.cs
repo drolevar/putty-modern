@@ -31,11 +31,8 @@ internal sealed partial class SettingsWindow : Window
         // Like the main window, the title bar is the framework's own control in the window's content, so that it follows the
         // theme of the app: the system's title bar is drawn light in a dark app, which is how this window looked before.
         var titleBar = new TitleBar { Title = title };
-        string icon = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
-        if (File.Exists(icon))
-        {
-            titleBar.IconSource = new ImageIconSource { ImageSource = new BitmapImage(new Uri(icon)) };
-        }
+        AppWindow.SetIcon(AppIcon.Get());           // taskbar and Alt+Tab: the exe's own icon (AppIcon.cs)
+        titleBar.IconSource = TitleBarIcon.Create();    // the title bar's: a picture embedded in the exe (TitleBarIcon.cs)
 
         var frame = new Grid();
         frame.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });

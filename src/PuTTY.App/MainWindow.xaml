@@ -18,11 +18,9 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TitleBar x:Name="AppTitleBar" Title="PuTTY">
-            <TitleBar.IconSource>
-                <ImageIconSource ImageSource="Assets/AppIcon.ico" />
-            </TitleBar.IconSource>
-        </TitleBar>
+        <!-- The TitleBar control shows no icon of its own (tested: with no IconSource the title text starts at the left edge, whatever
+             AppWindow.SetIcon says); its IconSource is set in code from a picture embedded in the exe (TitleBarIcon.cs). -->
+        <TitleBar x:Name="AppTitleBar" Title="PuTTY" />
 
         <!-- Same docking structure as the Figma sketch "PuTTY · Docked workspace":
              Sessions on the left, terminal documents in the centre with the

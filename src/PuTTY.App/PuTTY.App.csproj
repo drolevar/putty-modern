@@ -24,7 +24,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Assets\AppIcon.ico" />
+    <!-- The title bars' icon (the TitleBar control draws an IconSource, an image) is a picture inside the exe, so that no image file
+         has to be installed (every file is an MSI component): TitleBarIcon.cs reads it. The window's own icon (taskbar, Alt+Tab)
+         is the exe's, from ApplicationIcon: AppIcon.cs. (A Content item here would not even reach a publish folder without
+         CopyToOutputDirectory.) -->
+    <EmbeddedResource Include="Assets\TitleBarIcon.png" LogicalName="TitleBarIcon.png" />
   </ItemGroup>
 
   <ItemGroup>

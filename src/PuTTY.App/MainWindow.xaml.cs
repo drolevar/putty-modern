@@ -135,9 +135,10 @@ public sealed partial class MainWindow : Window
         }
 
         ExtendsContentIntoTitleBar = true;
+        AppTitleBar.IconSource = TitleBarIcon.Create();
         SetTitleBar(AppTitleBar);
 
-        AppWindow.SetIcon("Assets/AppIcon.ico");
+        AppWindow.SetIcon(AppIcon.Get());           // the exe's own icon: no icon file to install (AppIcon.cs)
         WindowSizing.Resize(AppWindow, 1440, 940);    // size of the Figma sketch frame, or the screen if that is smaller
     }
 
