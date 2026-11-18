@@ -1,4 +1,12 @@
 /*
+ * Copyright 2026 Andrij Abyzov.
+ * Modelled on PuTTY's windows/dialog.c and windows/controls.c, copyright 1997-2026 Simon Tatham and the PuTTY contributors;
+ * the dialog's description and handlers are PuTTY's own (config.c, dialog.c), linked unmodified.
+ * MIT licence: see LICENSE, and THIRD-PARTY-NOTICES.txt for PuTTY's licence, word for word.
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * configbox.c - PuTTY's settings dialog, with the drawing left to the host.
  *
  * config.c describes the whole configuration box as a tree of groups of controls (struct controlbox)

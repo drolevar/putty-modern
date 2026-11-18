@@ -1,4 +1,12 @@
 /*
+ * Copyright 2026 Andrij Abyzov.
+ * Replaces, with the same interface, PuTTY's windows/handle-wait.c, copyright 1997-2026
+ * Simon Tatham and the PuTTY contributors.
+ * MIT licence: see LICENSE, and THIRD-PARTY-NOTICES.txt for PuTTY's licence, word for word.
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * handlewait.c - the engine's replacement for PuTTY's windows/handle-wait.c.
  *
  * PuTTY keeps a list of HANDLEs to wait for, each with a callback; a Windows front end's event loop asks for the

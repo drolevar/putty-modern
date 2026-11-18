@@ -1,4 +1,12 @@
 /*
+ * Copyright 2026 Andrij Abyzov.
+ * Portions adapted from PuTTY's windows/window.c (the message window and the start-up sequence), copyright 1997-2026
+ * Simon Tatham and the PuTTY contributors.
+ * MIT licence: see LICENSE, and THIRD-PARTY-NOTICES.txt for PuTTY's licence, word for word.
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * eventloop.c - runs PuTTY's event-driven core on the calling thread.
  *
  * PuTTY's core never blocks. It asks its front end for three things, and a GUI front end

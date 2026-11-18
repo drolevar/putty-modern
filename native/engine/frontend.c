@@ -1,4 +1,12 @@
 /*
+ * Copyright 2026 Andrij Abyzov.
+ * Modelled on PuTTY's own front ends (windows/window.c, windows/console.c), copyright 1997-2026
+ * Simon Tatham and the PuTTY contributors.
+ * MIT licence: see LICENSE, and THIRD-PARTY-NOTICES.txt for PuTTY's licence, word for word.
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * frontend.c - process-level functions and data PuTTY's core expects a front end to define.
  *
  * Every PuTTY front end (windows/window.c, unix/window.c, the console tools) supplies these.

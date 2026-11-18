@@ -1,4 +1,11 @@
 /*
+ * Copyright 1997-2026 Simon Tatham and the PuTTY contributors (the key translation: TranslateKey in PuTTY's windows/window.c).
+ * Copyright 2026 Andrij Abyzov (the changes listed below, and the rest of this file).
+ * MIT licence: see LICENSE, and THIRD-PARTY-NOTICES.txt for PuTTY's licence, word for word.
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * keys.c - keyboard input: a port of PuTTY's key translation, fed from the raw message stream.
  *
  * Why it looks like this (the keyboard/IME spike, docs/spike-keyboard-ime.md):

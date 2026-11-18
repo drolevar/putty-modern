@@ -1,4 +1,12 @@
 /*
+ * Copyright 2026 Andrij Abyzov.
+ * Portions adapted from PuTTY's windows/window.c (do_text_internal, wintw_draw_cursor and the other TermWin methods),
+ * copyright 1997-2026 Simon Tatham and the PuTTY contributors.
+ * MIT licence: see LICENSE, and THIRD-PARTY-NOTICES.txt for PuTTY's licence, word for word.
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * termwin.c - the TermWin the emulator draws through, onto the renderer (render.h).
  *
  * PuTTY's terminal emulator draws and reports through a vtable of 24 methods (TermWin). The Win32

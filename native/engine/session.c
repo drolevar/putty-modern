@@ -1,4 +1,12 @@
 /*
+ * Copyright 2026 Andrij Abyzov.
+ * Portions adapted from PuTTY's windows/window.c (the start-up and close sequences, mouse and wheel handling, reconfiguration),
+ * copyright 1997-2026 Simon Tatham and the PuTTY contributors.
+ * MIT licence: see LICENSE, and THIRD-PARTY-NOTICES.txt for PuTTY's licence, word for word.
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
  * session.c - one PuTTY connection, as seen by the host.
  *
  * A session owns the three things PuTTY needs to run a connection: a Conf (the
