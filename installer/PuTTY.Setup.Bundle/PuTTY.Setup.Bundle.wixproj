@@ -21,7 +21,15 @@
   <ItemGroup>
     <Content Include="..\Common\Common.wxi" Link="Common.wxi" />
     <None Include="scripts\FindVcRedist.ps1" />
+    <!-- The theme and its strings are named by the standard bootstrapper application (Bundle.wxs). The strings file must not also
+         be taken as a localization file of the project: that would move the output into an en-US folder, as the package's. -->
+    <EmbeddedResource Remove="Theme\**" />
+    <Content Include="Theme\Theme.xml" />
+    <Content Include="Theme\Theme.wxl" />
   </ItemGroup>
+
+  <!-- The licence box's text (notices.rtf, $(var.NoticesRtf)) is made from LICENSE and THIRD-PARTY-NOTICES.txt at build time. -->
+  <Import Project="..\Common\Notices.targets" />
 
   <PropertyGroup>
     <PrepareForBuildDependsOn>$(PrepareForBuildDependsOn);FindVcRedist</PrepareForBuildDependsOn>

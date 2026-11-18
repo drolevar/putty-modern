@@ -11,11 +11,16 @@
           AboutUrl="$(HelpUrl)"
           IconSourceFile="$(AppIcon)">
 
-    <!-- The stock setup window, with the licence as a link (the MIT licence is also the first page of the package's own UI). -->
+    <!-- The setup window: WiX's standard bootstrapper application with a theme of our own (Theme\Theme.xml: a banner across the top,
+         a welcome text that credits Simon Tatham and PuTTY, the licence text in the window above the "I agree" box). The banner
+         is the picture of the MSI's wizard; the licence is the RTF made at build time from LICENSE and THIRD-PARTY-NOTICES.txt
+         ($(NoticesRtf), see ..\Common\Notices.targets), the same text as the package's licence page. -->
     <BootstrapperApplication>
-      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense"
-                                              LogoFile="$(InstallerAssets)logo.png"
-                                              LicenseUrl="$(LicenseUrl)"
+      <bal:WixStandardBootstrapperApplication Theme="rtfLicense"
+                                              ThemeFile="Theme\Theme.xml"
+                                              LocalizationFile="Theme\Theme.wxl"
+                                              LogoFile="$(InstallerAssets)banner.bmp"
+                                              LicenseFile="$(NoticesRtf)"
                                               SuppressOptionsUI="yes" />
     </BootstrapperApplication>
 
