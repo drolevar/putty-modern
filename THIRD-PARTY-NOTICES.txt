@@ -15,9 +15,6 @@ PuTTY is used under its own licence, which follows word for word. PuTTY Modern i
 project: it is not made or endorsed by Simon Tatham or the PuTTY team. The official PuTTY is at
 https://www.chiark.greenend.org.uk/~sgtatham/putty/
 
-PuTTY Modern shares saved sessions and host keys with PuTTY (the registry key
-HKEY_CURRENT_USER\Software\SimonTatham\PuTTY).
-
 PuTTY's licence:
 
 PuTTY is copyright 1997-2026 Simon Tatham.

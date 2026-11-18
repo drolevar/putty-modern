@@ -13,7 +13,7 @@ PuTTY Modern changes what you look at and leaves the hard part alone. SSH, key h
 ## What you get
 
 - **Tabs and split panes.** Open each session in a tab, drag a tab to split the area, or pick an arrangement (side by side, stacked, three columns, a grid, one large and two small). Save an arrangement as a named layout. The workspace you left comes back the next time you start.
-- **A session list you can live in.** Your saved PuTTY sessions in folders you make, a search box that looks at names, hosts and folders, the five you used last, and each session's host and protocol under its name.
+- **A session list you can live in.** Your saved PuTTY sessions in folders you make, a search box that looks at names, hosts and folders, the five you used last, and each session's host and protocol under its name. The sessions and the host keys you have accepted are PuTTY's own, in the same place in the registry (`HKCU\Software\SimonTatham\PuTTY`), so PuTTY and PuTTY Modern see the same ones: sessions you save in one are there in the other. (The folders are only PuTTY Modern's.)
 - **Settings that are easy to find.** All of PuTTY's settings, in the same places, as a tree of pages with a "Find a setting" box. Change the settings of a running session and see them apply.
 - **Connection log and session details.** PuTTY's own event log for every session in one list, and for the open tab its host, port, protocol, key exchange, cipher and the host key's fingerprint, with Reconnect, Duplicate and Disconnect one click away.
 - **Everything PuTTY connects with.** SSH (password, keyboard-interactive, key files, Pageant, host key confirmation, port forwarding, X11 forwarding to an X server on Windows), Telnet, Rlogin, raw sockets and serial lines, with PuTTY's proxy and logging settings.
@@ -48,6 +48,6 @@ dotnet build installer/PuTTY.Setup.Bundle/PuTTY.Setup.Bundle.wixproj -c Release 
 
 ## Credit and licences
 
-PuTTY Modern was created by Andrij Abyzov and is under the MIT licence ([LICENSE](LICENSE)). A large part of what runs is PuTTY's own code, by Simon Tatham and the PuTTY contributors, included unmodified in `external/putty`; a few files in `native/engine` adapt code from PuTTY for Windows, as their headers say. PuTTY is © 1997–2026 Simon Tatham and is MIT-licensed. PuTTY Modern is independent and not affiliated with or endorsed by the PuTTY team. It shares saved sessions and host keys with PuTTY (`HKCU\Software\SimonTatham\PuTTY`).
+PuTTY Modern was created by Andrij Abyzov and is under the MIT licence ([LICENSE](LICENSE)). A large part of what runs is PuTTY's own code, by Simon Tatham and the PuTTY contributors, included unmodified in `external/putty`; a few files in `native/engine` adapt code from PuTTY for Windows, as their headers say. PuTTY is © 1997–2026 Simon Tatham and is MIT-licensed. PuTTY Modern is independent and not affiliated with or endorsed by the PuTTY team.
 
 PuTTY's licence, word for word, and the licences of the other software PuTTY Modern contains are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) (the .NET runtime's own third-party notices are in [notices/](notices/)). The same text is shown by the installers and under About, then Licences, in the program.
