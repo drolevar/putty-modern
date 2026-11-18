@@ -37,14 +37,14 @@
   again at the end).
 #>
 param(
-    [string[]] $Smoke = @('terminal', 'ssh', 'sessions', 'settings', 'workspace', 'appearance', 'features', 'crash'),
+    [string[]] $Smoke = @('terminal', 'ssh', 'sessions', 'settings', 'workspace', 'appearance', 'features', 'crash', 'about'),
     [string] $AppDir = 'artifacts\publish\PuTTY.App\release_win-x64',
     [switch] $InstallMissing
 )
 
 $ErrorActionPreference = 'Stop'
 $Smoke = @($Smoke | ForEach-Object { $_ -split ',' } | Where-Object { $_ })        # `powershell -File x.ps1 -Smoke a,b` arrives as the one string "a,b"
-if ($Smoke -contains 'all') { $Smoke = @('terminal', 'ssh', 'sessions', 'settings', 'workspace', 'appearance', 'features', 'crash', 'openssh', 'agent', 'x11', 'mouse') }
+if ($Smoke -contains 'all') { $Smoke = @('terminal', 'ssh', 'sessions', 'settings', 'workspace', 'appearance', 'features', 'crash', 'about', 'openssh', 'agent', 'x11', 'mouse') }
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $appFolder = if ([IO.Path]::IsPathRooted($AppDir)) { $AppDir } else { Join-Path $root $AppDir }
 $exe = Join-Path $appFolder 'PuTTY.App.exe'
@@ -65,7 +65,7 @@ if ($running) {
     exit 98
 }
 
-$unknown = @($Smoke | Where-Object { $_ -notin 'terminal', 'ssh', 'sessions', 'settings', 'workspace', 'appearance', 'features', 'crash', 'openssh', 'agent', 'x11', 'mouse' })
+$unknown = @($Smoke | Where-Object { $_ -notin 'terminal', 'ssh', 'sessions', 'settings', 'workspace', 'appearance', 'features', 'crash', 'about', 'openssh', 'agent', 'x11', 'mouse' })
 if ($unknown.Count -gt 0) { Write-Host "No such check: $($unknown -join ', ')"; exit 98 }
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)

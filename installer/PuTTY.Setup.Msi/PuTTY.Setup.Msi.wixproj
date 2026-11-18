@@ -8,7 +8,7 @@
     <RepoRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..'))</RepoRoot>
     <AppPublishDir Condition="'$(AppPublishDir)' == ''">$(RepoRoot)artifacts\publish\PuTTY.App\release_win-x64\</AppPublishDir>
     <PublishApp Condition="'$(PublishApp)' == ''">true</PublishApp>
-    <DefineConstants>$(DefineConstants);AppPublishDir=$(AppPublishDir);AppIcon=$(RepoRoot)src\PuTTY.App\Assets\AppIcon.ico;LicenseRtf=$(MSBuildThisFileDirectory)License.rtf</DefineConstants>
+    <DefineConstants>$(DefineConstants);AppPublishDir=$(AppPublishDir);AppIcon=$(RepoRoot)src\PuTTY.App\Assets\AppIcon.ico</DefineConstants>
 
     <!-- ICE61 warns that the package may "remove only older versions of itself": MajorUpgrade AllowSameVersionUpgrades makes the
          maximum version of the upgrade inclusive, on purpose, so that a rebuilt package of the same version (every local build is
@@ -23,8 +23,10 @@
 
   <ItemGroup>
     <Content Include="..\Common\Common.wxi" Link="Common.wxi" />
-    <None Include="License.rtf" />
   </ItemGroup>
+
+  <!-- The licence page's text (notices.rtf, $(var.NoticesRtf)) is made from LICENSE and THIRD-PARTY-NOTICES.txt at build time. -->
+  <Import Project="..\Common\Notices.targets" />
 
   <Target Name="PublishApp" BeforeTargets="PrepareForBuild" Condition="'$(PublishApp)' == 'true'">
     <!-- dotnet publish does not clear its output folder, and the package packs everything in it: files of an older build (the 292

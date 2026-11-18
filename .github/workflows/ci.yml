@@ -73,5 +73,5 @@ jobs:
           name: PuTTYModernSetup
           path: |
             artifacts/installer/PuTTY.Setup.Bundle/bin/Release/PuTTYModernSetup.exe
-            artifacts/installer/PuTTY.Setup.Msi/bin/Release/PuTTYModern.msi
+            artifacts/installer/PuTTY.Setup.Msi/bin/Release/en-US/PuTTYModern.msi
           retention-days: 14

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Texts of the stock WixUI dialogs that this package words itself (a string with the same Id as a stock one replaces it).
+     [ProductName] is "PuTTY Modern": every installer text says the full name. -->
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <!-- The welcome page: who made this, whose PuTTY it is built on, and that the PuTTY team does not stand behind it. -->
+  <String Id="WelcomeDlgDescription" Value="This will install [ProductName] by Andrij Abyzov, a Windows front end for PuTTY. PuTTY is by Simon Tatham and the PuTTY contributors; [ProductName] is not made or endorsed by them.&#13;&#10;&#13;&#10;Click Next to continue or Cancel to exit the Setup Wizard." />
+</WixLocalization>

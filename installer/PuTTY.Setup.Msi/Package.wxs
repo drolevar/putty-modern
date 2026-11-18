@@ -29,8 +29,11 @@
       <ComponentGroupRef Id="AppFiles" />
     </Feature>
 
-    <!-- The stock install-directory dialogs: welcome, licence (the MIT licence), folder, ready, progress, done. -->
-    <WixVariable Id="WixUILicenseRtf" Value="$(LicenseRtf)" />
+    <!-- The stock install-directory dialogs: welcome, licence, folder, ready, progress, done. The licence page shows PuTTY Modern's
+         licence and then PuTTY's, word for word, and the other components' (notices.rtf, made at build time from LICENSE and
+         THIRD-PARTY-NOTICES.txt, see ..\Common\Notices.targets). The welcome page's text, with the credit to Simon Tatham, is in
+         Strings.wxl. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(NoticesRtf)" />
     <!-- Its pictures: the welcome and finish dialogs (493 x 312) and the banner of the inner ones (493 x 58). -->
     <WixVariable Id="WixUIDialogBmp" Value="$(InstallerAssets)dialog.bmp" />
     <WixVariable Id="WixUIBannerBmp" Value="$(InstallerAssets)banner.bmp" />

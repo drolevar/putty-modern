@@ -198,7 +198,10 @@ internal sealed partial class SettingsView
         var footer = new Grid { Margin = new Thickness(24, 10, 24, 12) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        footer.Children.Add(Secondary("About PuTTY"));
+        var about = new HyperlinkButton { Content = "About PuTTY", Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left };
+        AutomationProperties.SetAutomationId(about, "SettingsAbout");
+        about.Click += (_, _) => _ = AboutDialog.ShowAsync(xamlRoot());
+        footer.Children.Add(about);
         var help = new HyperlinkButton
         {
             Content = "Help",

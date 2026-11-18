@@ -16,7 +16,10 @@ internal static class TitleBarIcon
     private const string ResourceName = "TitleBarIcon.png";
 
     /// <summary>The icon source for a <c>TitleBar</c>, or <c>null</c> (the slot stays empty) when the picture cannot be loaded.</summary>
-    public static IconSource? Create()
+    public static IconSource? Create() => CreateBitmap() is { } image ? new ImageIconSource { ImageSource = image } : null;
+
+    /// <summary>The same picture as an image, for the About dialog; <c>null</c> when it cannot be loaded.</summary>
+    public static BitmapImage? CreateBitmap()
     {
         try
         {
@@ -41,7 +44,7 @@ internal static class TitleBarIcon
             stream.Seek(0);
             var image = new BitmapImage();
             image.SetSource(stream);
-            return new ImageIconSource { ImageSource = image };
+            return image;
         }
         catch (Exception ex)
         {

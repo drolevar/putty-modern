@@ -1,0 +1,22 @@
+<Project>
+  <!-- The licence text the installers show, as RTF made from the repository's own files (LICENSE and THIRD-PARTY-NOTICES.txt: the
+       same ones the About dialog shows), so nothing is written twice and a PuTTY update in the notices file reaches the installers
+       by itself. Each project makes its own copy in its intermediate folder: $(NoticesRtf) is the path, also a preprocessor
+       variable ($(var.NoticesRtf)) for the .wxs files. -->
+  <PropertyGroup>
+    <NoticesRtf>$(IntermediateOutputPath)notices.rtf</NoticesRtf>
+    <DefineConstants>$(DefineConstants);NoticesRtf=$(NoticesRtf)</DefineConstants>
+    <NoticesRepoRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..'))</NoticesRepoRoot>
+  </PropertyGroup>
+
+  <Target Name="MakeNoticesRtf"
+          BeforeTargets="PrepareForBuild"
+          Inputs="$(NoticesRepoRoot)LICENSE;$(NoticesRepoRoot)THIRD-PARTY-NOTICES.txt;$(MSBuildThisFileDirectory)MakeNoticesRtf.ps1"
+          Outputs="$(NoticesRtf)">
+    <Exec Command="powershell.exe -NonInteractive -ExecutionPolicy Bypass -NoProfile -File &quot;$(MSBuildThisFileDirectory)MakeNoticesRtf.ps1&quot; -OutputFilePath &quot;$(NoticesRtf)&quot;" />
+  </Target>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)MakeNoticesRtf.ps1" Link="MakeNoticesRtf.ps1" />
+  </ItemGroup>
+</Project>

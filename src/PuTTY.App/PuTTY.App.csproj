@@ -32,6 +32,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The licence texts the About dialog shows under Licences (AboutDialog.cs): PuTTY Modern's own, PuTTY's word for word with the
+         other components', and the .NET runtime's third-party notices. They are inside the exe for the same reason as the icon: no
+         extra file in the install folder, and the notice travels with every copy of the program, however it was installed. -->
+    <EmbeddedResource Include="..\..\LICENSE" LogicalName="LICENSE.txt" Link="Notices\LICENSE.txt" />
+    <EmbeddedResource Include="..\..\THIRD-PARTY-NOTICES.txt" LogicalName="THIRD-PARTY-NOTICES.txt" Link="Notices\THIRD-PARTY-NOTICES.txt" />
+    <EmbeddedResource Include="..\..\notices\dotnet-runtime-THIRD-PARTY-NOTICES.txt" LogicalName="dotnet-runtime-THIRD-PARTY-NOTICES.txt" Link="Notices\dotnet-runtime-THIRD-PARTY-NOTICES.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The Windows App SDK by its WinUI component, not the Microsoft.WindowsAppSDK metapackage: the metapackage adds the AI,
          ML (ONNX Runtime, DirectML), Search, Widgets and DWriteCore components, about 60 MiB the app never uses. -->
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" />

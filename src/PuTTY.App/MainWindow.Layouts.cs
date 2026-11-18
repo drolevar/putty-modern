@@ -415,9 +415,5 @@ public sealed partial class MainWindow
         Description = record.Description,
     };
 
-    private async Task ShowAboutAsync()
-    {
-        await SessionInteraction.ShowMessageAsync(DockSite.XamlRoot, "About PuTTY",
-            "PuTTY Modern: a WinUI 3 front end for PuTTY.\n\nThe connections, the terminal emulation and the settings are PuTTY's own code, unmodified.");
-    }
+    private Task ShowAboutAsync() => AboutDialog.ShowAsync(DockSite.XamlRoot);
 }
